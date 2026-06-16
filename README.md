@@ -82,22 +82,32 @@ Key options (see `config.example.ini` for the full list):
 
 ## Usage
 
-1. Power the Pi. It boots into the idle animation (a dot sweeping left→right).
-2. Insert a card. Watch the status:
+1. Power the Pi. It boots into the idle animation (a dot drifting left→right).
+2. Insert a card. The card is only needed for a few seconds — long enough to copy
+   the logs off and archive the originals. Then it shows the **eject ⬆** and the
+   rest (merge + upload) happens in the background while the card is already out.
 
-| State | Scroll pHAT shows |
-|-------|-------------------|
-| Idle / waiting | Dim dot sweeping across |
-| Scanning card | A dot circling a ring |
-| Merging files | Pulsing dots growing 1→2→3 |
-| Uploading | A **progress bar** filling left→right |
-| ✅ Success — safe to remove | Bright **✓** with a slow pulse |
-| ❌ Error (originals untouched) | Fast‑blinking **✗** |
-| No logs found | Dim centre dash blinking |
+| State | Scroll pHAT shows | Card needed? |
+|-------|-------------------|:---:|
+| Idle / waiting | Dim dot drifting across | — |
+| Scanning card | Dot circling a ring | yes |
+| Copying logs off | Bright comet sweeping right | yes |
+| **Safe to remove** | Steady **⬆** arrow, gentle pulse | **pull it now** |
+| Merging (background) | Dots growing 1→2→3 | no |
+| Uploading (background) | **Progress bar** filling left→right | no |
+| ✅ Success | Bright **✓** + side bars (see below) | no |
+| ❌ Upload failed | Bright **✗** + side bars; auto‑retries | no |
+| No logs found | Dim steady centre dash | — |
 
-3. When you see the **✓**, pull the card. Insert the next one; it repeats.
+**Which service uploaded?** On the ✓/✗ result, the two edge columns are per‑service
+flags: **left edge lit = WiGLE OK**, **right edge lit = wdgowars OK**. So ✓ with both
+edges lit = both succeeded; ✓ with only the left edge = WiGLE went up but wdgowars
+didn't (it'll keep retrying in the background).
 
-On error, nothing on the card is moved — just fix the issue (Wi‑Fi, keys) and re‑insert to retry.
+3. As soon as you see the **⬆**, pull the card and insert the next one — you don't
+   have to wait for the upload. Originals are archived on the card *before* upload,
+   so a failed upload never strands your logs; it just retries (every 10 min, and on
+   reboot) until it succeeds or hits `max_attempts`.
 
 ---
 
@@ -138,17 +148,26 @@ sudo systemctl restart wardrive-uploader
 ## How it works
 
 ```
-IDLE ──card in──▶ MOUNT ──▶ DISCOVER ──▶ MERGE ──▶ LOCAL ARCHIVE ──▶ UPLOAD ──▶ ON-CARD ARCHIVE ──▶ DONE
-  ▲                                          │(none found)                  │(required upload fails)      │
-  └───────────────card out──────────────────┴──────────────────────────────┴── ERROR (card untouched) ──┘
+ CARD MOUNTED (seconds)                    BACKGROUND (card already removed)
+┌───────────────────────────────┐        ┌──────────────────────────────────────┐
+│ MOUNT ▶ DISCOVER ▶ COPY to Pi  │        │ MERGE ▶ UPLOAD(WiGLE+wdgowars,retry)  │
+│        ▶ archive on card       │──────▶ │   ▶ update meta ▶ ✓/✗                  │
+│        ▶ unmount ▶ ⬆ SAFE      │ enqueue│   (retries every 10 min + on reboot)  │
+└───────────────────────────────┘        └──────────────────────────────────────┘
 ```
 
 - **Discovery** scans the whole card and matches files whose first line starts with
   `WigleWifi-`, so it finds logs regardless of folder.
+- **Card time is minimized**: while mounted it only *copies* the logs to the Pi and
+  moves the originals into the on‑card `archive/` (an instant same‑filesystem rename),
+  then unmounts and tells you it's safe to remove. The slow **merge and upload run
+  afterwards**, off‑card.
 - **Merge** keeps one header pair, concatenates data rows, and de‑dups on `MAC + FirstSeen`.
   Marauder writes WigleWifi‑1.4 and Piglet writes 1.6; since one card = one device, no mixing
   happens (a 1.4→1.6 normalizer exists for safety).
-- The **local copy is written before upload**, so your logs are safe even if the upload fails.
+- **Durable uploads**: each run's status is tracked in `meta.json`. Failed/incomplete
+  uploads are re‑queued automatically (periodically and on reboot) until they succeed
+  or hit `max_attempts`, so a flaky network never loses data.
 
 Run the offline tests with `python3 tests/test_merge.py`.
 

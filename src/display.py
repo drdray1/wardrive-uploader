@@ -23,8 +23,10 @@ WIDTH, HEIGHT = 11, 5
 # States
 IDLE = "idle"
 SCANNING = "scanning"
+COPYING = "copying"
 MERGING = "merging"
 UPLOADING = "uploading"
+SAFE_REMOVE = "safe_remove"
 SUCCESS = "success"
 ERROR = "error"
 NONE_FOUND = "none"
@@ -161,6 +163,8 @@ def _g(rows):
 
 GLYPH_CHECK = _g(["     ", "    #", "   # ", "# #  ", " #   "])
 GLYPH_X = _g(["#   #", " # # ", "  #  ", " # # ", "#   #"])
+# Up arrow = "eject / lift the card out".
+GLYPH_UP = _g(["  #  ", " ### ", "#####", "  #  ", "  #  "])
 
 
 # ---------------------------------------------------------------------------
@@ -172,6 +176,7 @@ class Display:
         self.base_brightness = brightness
         self._state = IDLE
         self._progress = 0.0
+        self._marks = {}        # per-uploader ok flags for SUCCESS/ERROR
         self._lock = threading.Lock()
         self._stop = threading.Event()
         self._frame = 0
@@ -190,6 +195,14 @@ class Display:
         with self._lock:
             self._progress = max(0.0, min(1.0, progress))
 
+    def set_result(self, state, marks):
+        """Set SUCCESS/ERROR plus per-uploader marks, e.g.
+        {'wigle': True, 'wdgowars': False}. Left edge = wigle, right = wdgowars."""
+        with self._lock:
+            self._state = state
+            self._marks = dict(marks or {})
+        log.info("display result -> %s marks=%s", state, marks)
+
     def stop(self):
         self._stop.set()
         self._thread.join(timeout=2)
@@ -203,8 +216,9 @@ class Display:
         while not self._stop.is_set():
             with self._lock:
                 state, progress, frame = self._state, self._progress, self._frame
+                marks = dict(self._marks)
             try:
-                self._render(state, progress, frame)
+                self._render(state, progress, frame, marks)
             except Exception as e:
                 log.debug("render error: %s", e)
             with self._lock:
@@ -220,14 +234,37 @@ class Display:
         for (x, y) in points:
             self.be.set_pixel(x + dx, y + dy, True)
 
-    def _render(self, state, progress, frame):
+    def _draw_marks(self, marks):
+        """Side-column flags: left edge (x=0) = wigle ok, right edge (x=10) = wdgowars ok."""
+        if marks.get("wigle"):
+            for y in range(HEIGHT):
+                self.be.set_pixel(0, y, True)
+        if marks.get("wdgowars"):
+            for y in range(HEIGHT):
+                self.be.set_pixel(WIDTH - 1, y, True)
+
+    def _render(self, state, progress, frame, marks=None):
         self._blank()
+        marks = marks or {}
 
         if state == IDLE:
             # Slow, dim dot drifting left->right (calm "waiting" cue).
             self.be.set_brightness(max(8, self.base_brightness // 5))
             pos = (frame // 3) % WIDTH
             self.be.set_pixel(pos, 2, True)
+
+        elif state == COPYING:
+            # Brighter 2-px "comet" sweeping right = pulling data off the card.
+            self.be.set_brightness(self.base_brightness)
+            head = (frame // 2) % (WIDTH + 2)
+            for x in (head - 1, head):
+                if 0 <= x < WIDTH:
+                    self.be.set_pixel(x, 2, True)
+
+        elif state == SAFE_REMOVE:
+            # Steady up-arrow with a gentle pulse: "lift the card out now".
+            self.be.set_brightness(60 + int(150 * _tri(frame, 18)))
+            self._draw(GLYPH_UP, dx=3)
 
         elif state == SCANNING:
             self.be.set_brightness(self.base_brightness)
@@ -253,16 +290,18 @@ class Display:
                     self.be.set_pixel(x, y, True)
 
         elif state == SUCCESS:
-            # Steady check with a slow, gentle breathing pulse.
+            # Steady check with a slow, gentle breathing pulse + uploader marks.
             b = 60 + int(150 * _tri(frame, 32))
             self.be.set_brightness(b)
             self._draw(GLYPH_CHECK, dx=3)
+            self._draw_marks(marks)
 
         elif state == ERROR:
             # Steady X with a slow brightness breathe - attention without strobing.
             b = 40 + int(140 * _tri(frame, 24))
             self.be.set_brightness(b)
             self._draw(GLYPH_X, dx=3)
+            self._draw_marks(marks)
 
         elif state == NONE_FOUND:
             # Dim steady centre dash (no blink).

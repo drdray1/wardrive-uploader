@@ -58,21 +58,34 @@ def archive_on_card(files, mountpoint, folder, stamp):
     return dest
 
 
-def write_local_archive(local_dir, device, stamp, source_files, combined_path, meta):
-    """Copy originals + combined file + meta.json into the permanent Pi archive.
-    Called BEFORE upload so logs survive even if upload later fails."""
+def start_local_archive(local_dir, device, stamp, source_files, meta):
+    """FAST path while the card is mounted: copy the raw source files to the Pi
+    and write an initial meta.json. Merge + combined file come later, off-card.
+    Returns (archive_dir, list_of_copied_source_paths)."""
     dest = os.path.join(local_dir, device, stamp)
-    os.makedirs(os.path.join(dest, "sources"), exist_ok=True)
+    src_dir = os.path.join(dest, "sources")
+    os.makedirs(src_dir, exist_ok=True)
+    copied = []
     for src in source_files:
+        target = os.path.join(src_dir, os.path.basename(src))
         try:
-            shutil.copy2(src, os.path.join(dest, "sources", os.path.basename(src)))
+            shutil.copy2(src, target)
+            copied.append(target)
         except OSError as e:
             log.error("local archive copy failed for %s: %s", src, e)
-    if combined_path and os.path.exists(combined_path):
-        shutil.copy2(combined_path, os.path.join(dest, os.path.basename(combined_path)))
+            raise
     _write_meta(dest, meta)
-    log.info("local archive written -> %s", dest)
-    return dest
+    log.info("copied %s source file(s) to local archive -> %s", len(copied), dest)
+    return dest, copied
+
+
+def load_meta(archive_dir):
+    path = os.path.join(archive_dir, "meta.json")
+    try:
+        with open(path, "r", encoding="utf-8") as f:
+            return json.load(f)
+    except (OSError, ValueError):
+        return None
 
 
 def update_meta(archive_dir, meta):
@@ -80,6 +93,7 @@ def update_meta(archive_dir, meta):
 
 
 def _write_meta(archive_dir, meta):
+    os.makedirs(archive_dir, exist_ok=True)
     with open(os.path.join(archive_dir, "meta.json"), "w", encoding="utf-8") as f:
         json.dump(meta, f, indent=2, sort_keys=True)
 

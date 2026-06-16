@@ -25,9 +25,10 @@ _DEFAULTS = {
         "field": "file",
     },
     "upload": {
-        # Comma-separated uploaders that MUST succeed before archiving.
+        # Comma-separated uploaders that MUST succeed (others are best-effort).
         "required": "wigle",
-        "retries": "3",
+        "retries": "3",          # per-attempt retries within one upload pass
+        "max_attempts": "10",    # background passes before giving up a run
         "timeout": "120",
     },
     "archive": {
