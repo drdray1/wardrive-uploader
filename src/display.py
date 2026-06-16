@@ -209,7 +209,7 @@ class Display:
                 log.debug("render error: %s", e)
             with self._lock:
                 self._frame += 1
-            time.sleep(0.1)
+            time.sleep(0.18)
 
     def _blank(self):
         for x in range(WIDTH):
@@ -224,27 +224,28 @@ class Display:
         self._blank()
 
         if state == IDLE:
-            # Gentle breathing dot sweep + low brightness.
-            self.be.set_brightness(max(10, self.base_brightness // 4))
-            pos = frame % WIDTH
+            # Slow, dim dot drifting left->right (calm "waiting" cue).
+            self.be.set_brightness(max(8, self.base_brightness // 5))
+            pos = (frame // 3) % WIDTH
             self.be.set_pixel(pos, 2, True)
 
         elif state == SCANNING:
             self.be.set_brightness(self.base_brightness)
-            # Rotating dot around a small ring.
+            # Dot easing around a small ring (advances every 3rd frame).
             ring = [(4, 1), (5, 1), (6, 1), (6, 2), (6, 3),
                     (5, 3), (4, 3), (4, 2)]
-            self._draw([ring[frame % len(ring)]])
+            self._draw([ring[(frame // 3) % len(ring)]])
 
         elif state == MERGING:
             self.be.set_brightness(self.base_brightness)
-            # Three pulsing dots.
-            phase = (frame // 3) % 4
+            # Three dots filling 1->2->3 then repeating, unhurried.
+            phase = (frame // 5) % 4
             for i, x in enumerate((3, 5, 7)):
-                if i <= phase:
+                if i < phase:
                     self.be.set_pixel(x, 2, True)
 
         elif state == UPLOADING:
+            # Steady bar (no blink) - only changes with real progress.
             self.be.set_brightness(self.base_brightness)
             lit = int(round(progress * WIDTH))
             for x in range(lit):
@@ -252,25 +253,22 @@ class Display:
                     self.be.set_pixel(x, y, True)
 
         elif state == SUCCESS:
-            # Slow bright pulse + check glyph.
-            b = 40 + int(180 * _tri(frame, 20))
+            # Steady check with a slow, gentle breathing pulse.
+            b = 60 + int(150 * _tri(frame, 32))
             self.be.set_brightness(b)
             self._draw(GLYPH_CHECK, dx=3)
 
         elif state == ERROR:
-            # Fast blink X.
-            if (frame // 3) % 2 == 0:
-                self.be.set_brightness(self.base_brightness)
-                self._draw(GLYPH_X, dx=3)
-            else:
-                self.be.set_brightness(self.base_brightness)
+            # Steady X with a slow brightness breathe - attention without strobing.
+            b = 40 + int(140 * _tri(frame, 24))
+            self.be.set_brightness(b)
+            self._draw(GLYPH_X, dx=3)
 
         elif state == NONE_FOUND:
-            # Single dim centered dash blinking.
-            self.be.set_brightness(max(10, self.base_brightness // 3))
-            if (frame // 5) % 2 == 0:
-                for x in range(4, 7):
-                    self.be.set_pixel(x, 2, True)
+            # Dim steady centre dash (no blink).
+            self.be.set_brightness(max(8, self.base_brightness // 4))
+            for x in range(4, 7):
+                self.be.set_pixel(x, 2, True)
 
         self.be.show()
 
