@@ -55,12 +55,16 @@ class NullBackend:
 
 class ScrollphatBackend:
     def __init__(self, rotate=0, **_):
-        import scrollphat  # raises if unavailable
+        # NOTE: the 2016 `scrollphat` lib calls sys.exit() (SystemExit) if the
+        # system `smbus` module is missing - make_backend catches BaseException.
+        import scrollphat  # raises / exits if unavailable
         self._sp = scrollphat
         self._rotate = rotate
         self._sp.clear()
 
     def set_pixel(self, x, y, on):
+        if self._rotate == 180:
+            x, y = WIDTH - 1 - x, HEIGHT - 1 - y
         self._sp.set_pixel(x, y, 1 if on else 0)
 
     def set_brightness(self, value):
@@ -81,21 +85,23 @@ class Smbus2Backend:
     5 of those rows. Each column is one register byte (bit per row).
     """
     ADDR = 0x74
-    REG_CONFIG = 0x00
-    REG_MATRIX1 = 0x01
-    REG_UPDATE = 0x0C
-    REG_LIGHTING = 0x0D   # brightness
-    REG_PWM = 0x19
+    CMD_SET_MODE = 0x00
+    CMD_MATRIX_1 = 0x01
+    CMD_UPDATE = 0x0C
+    CMD_BRIGHTNESS = 0x19
+    MODE_5X11 = 0x03      # IS31FL3730: matrix 1 only, 5-row x 11-col addressing
 
     def __init__(self, bus=1, rotate=0, **_):
         from smbus2 import SMBus  # raises if unavailable
         self._bus = SMBus(bus)
         self._rotate = rotate
         self._cols = [0] * WIDTH
-        self._bus.write_byte_data(self.ADDR, self.REG_CONFIG, 0x18)  # matrix 1, 5x11
+        self._bus.write_byte_data(self.ADDR, self.CMD_SET_MODE, self.MODE_5X11)
         self.set_brightness(128)
 
     def set_pixel(self, x, y, on):
+        if self._rotate == 180:
+            x, y = WIDTH - 1 - x, HEIGHT - 1 - y
         if 0 <= x < WIDTH and 0 <= y < HEIGHT:
             if on:
                 self._cols[x] |= (1 << y)
@@ -103,17 +109,17 @@ class Smbus2Backend:
                 self._cols[x] &= ~(1 << y)
 
     def set_brightness(self, value):
-        # IS31FL3730 PWM register: 0..127 (0x00..0x7F), 128 = full.
-        pwm = max(0, min(127, int(value) // 2))
+        # IS31FL3730 brightness register 0x19: 0..255 written directly.
+        pwm = max(0, min(255, int(value)))
         try:
-            self._bus.write_byte_data(self.ADDR, self.REG_PWM, pwm)
+            self._bus.write_byte_data(self.ADDR, self.CMD_BRIGHTNESS, pwm)
         except OSError:
             pass
 
     def show(self):
         try:
-            self._bus.write_i2c_block_data(self.ADDR, self.REG_MATRIX1, self._cols)
-            self._bus.write_byte_data(self.ADDR, self.REG_UPDATE, 0x00)
+            self._bus.write_i2c_block_data(self.ADDR, self.CMD_MATRIX_1, self._cols)
+            self._bus.write_byte_data(self.ADDR, self.CMD_UPDATE, 0x01)
         except OSError as e:
             log.error("smbus2 show failed: %s", e)
 
@@ -133,7 +139,9 @@ def make_backend(prefer="auto", rotate=0):
             be = cls(rotate=rotate)
             log.info("display backend: %s", cls.__name__)
             return be
-        except Exception as e:  # ImportError or I2C/hardware error
+        except BaseException as e:  # noqa: BLE001
+            # BaseException, not Exception: the scrollphat lib calls sys.exit()
+            # (SystemExit) when system smbus is missing - must not kill us.
             log.warning("display backend %s unavailable: %s", cls.__name__, e)
     return NullBackend()
 

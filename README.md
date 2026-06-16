@@ -13,7 +13,7 @@ Plug card in → watch the lights → unplug when it shows the ✓. That's the w
 
 | Item | Notes |
 |------|-------|
-| Raspberry Pi Zero W | ARMv6, runs Raspberry Pi OS **Bookworm 32‑bit** |
+| Raspberry Pi Zero W | ARMv6, runs Raspberry Pi OS **Bookworm or Trixie 32‑bit** |
 | Pimoroni Scroll pHAT | [Adafruit #3017](https://www.adafruit.com/product/3017) — 11×5 **white** LEDs (no color) |
 | USB SD‑card reader | Plugs into the Pi's data **micro‑USB OTG** port (with an OTG adapter) |
 | Wi‑Fi | 2.4 GHz network the Pi can reach to upload |

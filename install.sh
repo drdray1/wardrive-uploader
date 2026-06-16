@@ -29,7 +29,7 @@ if [[ -r /etc/os-release ]]; then
   . /etc/os-release
   info "OS: ${PRETTY_NAME:-unknown}  ($(uname -m))"
   case "${VERSION_CODENAME:-}" in
-    bookworm|bullseye) : ;;
+    trixie|bookworm|bullseye) : ;;
     *) warn "Untested OS '${VERSION_CODENAME:-?}'. Continuing anyway." ;;
   esac
 fi
@@ -37,7 +37,8 @@ fi
 # --- 2. apt dependencies ----------------------------------------------------
 info "Installing apt packages..."
 apt-get update -qq
-apt-get install -y python3-venv python3-pip i2c-tools exfatprogs >/dev/null
+# python3-smbus provides the `smbus` module the scrollphat lib imports.
+apt-get install -y python3-venv python3-pip python3-smbus i2c-tools exfatprogs >/dev/null
 # exfat-fuse only exists on older releases; install if available, ignore if not.
 apt-get install -y exfat-fuse >/dev/null 2>&1 || true
 
@@ -60,8 +61,13 @@ if [[ "$RUN_USER" != "root" ]]; then
 fi
 
 # --- 4. python venv + deps --------------------------------------------------
+# --system-site-packages so the venv can see apt's python3-smbus (the scrollphat
+# lib imports the system `smbus` module, which isn't pip-installable).
 info "Creating virtualenv at $VENV ..."
-python3 -m venv "$VENV"
+python3 -m venv --system-site-packages "$VENV"
+# Ensure the flag even if the venv pre-existed from an earlier run.
+sed -i 's/^include-system-site-packages = false/include-system-site-packages = true/' \
+    "$VENV/pyvenv.cfg" 2>/dev/null || true
 "$VENV/bin/pip" install --upgrade pip >/dev/null
 "$VENV/bin/pip" install -r "$APP_DIR/requirements.txt"
 
