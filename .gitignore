@@ -1,0 +1,14 @@
+# Python venv created by install.sh
+.venv/
+__pycache__/
+*.pyc
+
+# Never commit real secrets or local archives
+*.local.ini
+config.ini
+/var/lib/wardrive-uploader/
+archive/
+
+# Scratch
+*.swp
+.DS_Store

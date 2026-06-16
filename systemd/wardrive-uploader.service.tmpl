@@ -1,0 +1,19 @@
+[Unit]
+Description=Wardrive upload appliance (Scroll pHAT status)
+# Need network + a synced clock (Zero W has no RTC) before we can upload.
+After=network-online.target time-sync.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+# Run as root so we can mount/unmount the USB card freely.
+User=root
+ExecStart=__VENV_PYTHON__ __APP_DIR__/src/main.py
+Restart=always
+RestartSec=5
+# Let the daemon manage its own mountpoints under /run.
+RuntimeDirectory=wardrive-mnt
+StateDirectory=wardrive-uploader
+
+[Install]
+WantedBy=multi-user.target

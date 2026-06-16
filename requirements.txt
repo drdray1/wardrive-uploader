@@ -1,0 +1,5 @@
+requests>=2.25
+pyudev>=0.22
+scrollphat>=0.0.7
+# Fallback display driver if the 2016 `scrollphat` library won't import on Bookworm.
+smbus2>=0.4
