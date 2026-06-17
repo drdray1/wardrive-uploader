@@ -2,10 +2,25 @@
 
 A standalone, plug-and-walk-away appliance built on a **Raspberry Pi Zero W** with a
 **Pimoroni Scroll pHAT**. Insert an SD card full of wardrive logs, and it automatically
-finds them, merges them into one file, uploads to **WiGLE** and **wdgowars**, then archives
+finds them, merges + compresses them, uploads to **WiGLE** and **wdgowars**, and archives
 the originals — all signalled live on the little LED matrix. No keyboard, no monitor, no menu.
 
-Plug card in → watch the lights → unplug when it shows the ✓. That's the whole workflow.
+**Plug card in → wait a few seconds → unplug when it shows the ⬆ (safe to remove).** The
+merge and uploads finish on their own in the background, with the card already out.
+
+## Features
+
+- **Minimal card time** — while the card is in, it only copies the logs off and archives the
+  originals (an instant rename), then says "safe to remove." Merge + upload happen after.
+- **Fast, low-memory merge** — streaming line-dedup, sized for a 512 MB Zero W.
+- **gzip + smart splitting** — uploads are gzipped (`~6–8×`) and capped per file, so even a
+  200 MB capture is usually a single upload per service.
+- **Parallel uploads** to WiGLE + wdgowars, **resumable** across failures and reboots
+  (per-part, per-service status tracked on disk).
+- **Live status** on the Scroll pHAT, plus an **idle ticker** showing your WiGLE monthly rank
+  and wdgowars team rank.
+- **Two copies of every run** — archived on the card *and* permanently on the Pi.
+- **One-command install** + systemd service; runs headless on boot.
 
 ---
 
@@ -41,7 +56,7 @@ reader.
 
 ```bash
 ssh <user>@wardrive-uploader.local
-git clone https://github.com/<you>/wardrive-uploader.git
+git clone https://github.com/drdray1/wardrive-uploader.git
 cd wardrive-uploader
 sudo ./install.sh
 ```
@@ -69,11 +84,15 @@ Key options (see `config.example.ini` for the full list):
 
 | Option | Meaning |
 |--------|---------|
-| `[upload] required` | Uploaders that **must** succeed before originals are archived (default `wigle`). |
+| `[upload] required` | Uploaders that **must** succeed for a run to count as done (default `wigle`; wdgowars is best‑effort). |
+| `[upload] max_upload_mb` / `gzip` | Per‑file cap (default 55) and gzip on/off (default on). gzip caps the *compressed* size. |
+| `[upload] retries` / `max_attempts` | Per‑pass retries (default 3) and background retry passes before giving up (default 10). |
+| `[merge] dedup` | `lines` (fast exact‑line, default), `none` (concatenate), or `fields` (MAC+FirstSeen, smallest/slowest). |
+| `[wdgowars] min_interval_seconds` | Cooldown the uploader waits between wdgowars uploads (default 60). |
 | `[archive] oncard_folder` | Folder created on the card for uploaded originals (default `archive`). |
-| `[archive] local_dir` | Permanent copy kept on the Pi. |
+| `[archive] local_dir` | Permanent copy kept on the Pi (default `/var/lib/wardrive-uploader/archive`). |
 | `[archive] retention_runs` / `retention_mb` | Prune oldest local runs so the Pi never fills up. |
-| `[display] brightness` / `rotate` | Panel brightness (0–255) and `180` if mounted upside‑down. |
+| `[display] brightness` / `rotate` | Panel brightness (0–255, scales the whole UI) and `180` if mounted upside‑down. |
 | `[stats] enabled` / `refresh_minutes` | Scroll your WiGLE monthly rank + wdgowars team rank when idle (default on, refreshed every 15 min). |
 
 > wdgowars uses its documented REST API (`POST /api/upload-csv`, header `X-API-Key`, field
@@ -84,7 +103,7 @@ Key options (see `config.example.ini` for the full list):
 
 ## Usage
 
-1. Power the Pi. It boots into the idle animation (a dot drifting left→right).
+1. Power the Pi. When idle it scrolls your stats (or a dim dot if stats are off/unavailable).
 2. Insert a card. The card is only needed for a few seconds — long enough to copy
    the logs off and archive the originals. Then it shows the **eject ⬆** and the
    rest (merge + upload) happens in the background while the card is already out.
