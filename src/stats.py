@@ -15,6 +15,10 @@ log = logging.getLogger("wardrive.stats")
 
 WIGLE_STATS_URL = "https://api.wigle.net/api/v2/stats/user"
 WDGOWARS_ME_URL = "https://wdgwars.pl/api/me"
+WDGOWARS_TEAM_URL = "https://wdgwars.pl/api/team/me"
+
+# Characters the 3x5 ticker font can render (others -> space).
+_TICKER_OK = set("ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789 #+-:./?")
 
 
 def _find(d, *keys):
@@ -33,7 +37,7 @@ def _find(d, *keys):
 
 
 def wigle_stats(api_name, api_token, timeout=10):
-    """Return {'nets': int, 'rank': int} or None."""
+    """Return {'nets', 'rank', 'month_rank'} or None."""
     try:
         r = requests.get(WIGLE_STATS_URL, headers={"Accept": "application/json"},
                          auth=HTTPBasicAuth(api_name, api_token), timeout=timeout)
@@ -44,25 +48,26 @@ def wigle_stats(api_name, api_token, timeout=10):
     if not data.get("success", True):
         log.warning("wigle stats: %s", data.get("message", "unsuccessful"))
         return None
-    nets = _find(data, "discoveredWiFiGPS", "discoveredWiFi", "discoveredWiFiGPSPercent")
-    rank = _find(data, "rank")
-    return {"nets": _int(nets), "rank": _int(rank)}
+    return {
+        "nets": _int(_find(data, "discoveredWiFiGPS", "discoveredWiFi")),
+        "rank": _int(_find(data, "rank")),
+        "month_rank": _int(_find(data, "monthRank")),
+    }
 
 
-def wdgowars_stats(api_key, timeout=10):
-    """Return {'total': int, 'wifi': int, 'today': int} or None."""
+def wdgowars_team(api_key, timeout=10):
+    """Return {'name': str, 'rank': int} for the caller's team, or None
+    (e.g. not on a team -> 404)."""
     try:
-        r = requests.get(WDGOWARS_ME_URL, headers={"X-API-Key": api_key,
+        r = requests.get(WDGOWARS_TEAM_URL, headers={"X-API-Key": api_key,
                          "Accept": "application/json"}, timeout=timeout)
+        if r.status_code == 404:
+            return None
         data = r.json()
     except (requests.RequestException, ValueError) as e:
-        log.warning("wdgowars stats fetch failed: %s", e)
+        log.warning("wdgowars team fetch failed: %s", e)
         return None
-    if not data.get("ok", True):
-        log.warning("wdgowars stats: not ok")
-        return None
-    return {"total": _int(data.get("total")), "wifi": _int(data.get("wifi")),
-            "today": _int(data.get("recent_today"))}
+    return {"name": data.get("name"), "rank": _int(_find(data, "rank"))}
 
 
 def _int(v):
@@ -76,22 +81,29 @@ def _fmt(n):
     return str(n) if n is not None else "?"
 
 
+def _ticker_safe(s):
+    return "".join(c if c in _TICKER_OK else " " for c in (s or "").upper())
+
+
 def build_message(cfg):
-    """Build the scrolling idle message from both platforms. Returns a string
-    (may be empty if nothing could be fetched)."""
+    """Build the idle ticker: WiGLE monthly rank + wdgowars team rank.
+    Best-effort; returns '' if nothing could be fetched."""
     parts = []
     if cfg.getbool("wigle", "enabled"):
         name, token = cfg.get("wigle", "api_name"), cfg.get("wigle", "api_token")
         if name and token:
             s = wigle_stats(name, token)
             if s:
-                parts.append("WIGLE {} #{}".format(_fmt(s["nets"]), _fmt(s["rank"])))
+                # Monthly rank is what we care about (fall back to all-time rank).
+                rank = s["month_rank"] if s["month_rank"] is not None else s["rank"]
+                parts.append("WIGLE MO #{}".format(_fmt(rank)))
     if cfg.getbool("wdgowars", "enabled"):
         key = cfg.get("wdgowars", "api_key")
         if key:
-            s = wdgowars_stats(key)
-            if s:
-                parts.append("WDG {} +{}".format(_fmt(s["total"]), _fmt(s["today"])))
+            t = wdgowars_team(key)
+            if t and t["rank"] is not None:
+                name = _ticker_safe(t["name"]).strip() or "TEAM"
+                parts.append("WDG {} #{}".format(name, _fmt(t["rank"])))
     msg = "   ".join(parts)
     if msg:
         log.info("stats ticker: %s", msg)
