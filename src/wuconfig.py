@@ -40,7 +40,7 @@ _DEFAULTS = {
     "archive": {
         "oncard_folder": "archive",
         "local_dir": "/var/lib/wardrive-uploader/archive",
-        "retention_runs": "50",
+        "retention_runs": "0",      # 0 = unlimited (prune by size only)
         "retention_mb": "500",
     },
     "scan": {

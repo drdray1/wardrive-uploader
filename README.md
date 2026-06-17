@@ -92,7 +92,7 @@ Key options (see `config.example.ini` for the full list):
 | `[wdgowars] min_interval_seconds` | Cooldown the uploader waits between wdgowars uploads (default 60). |
 | `[archive] oncard_folder` | Folder created on the card for uploaded originals (default `archive`). |
 | `[archive] local_dir` | Permanent copy kept on the Pi (default `/var/lib/wardrive-uploader/archive`). |
-| `[archive] retention_runs` / `retention_mb` | Prune oldest local runs so the Pi never fills up. |
+| `[archive] retention_runs` / `retention_mb` | Prune oldest local runs so the Pi never fills up. Each is independent; `0` = unlimited (default prunes by total size only). |
 | `[display] brightness` / `rotate` | Panel brightness (0–255, scales the whole UI) and `180` if mounted upside‑down. |
 | `[stats] enabled` / `refresh_minutes` | Scroll your WiGLE monthly rank + wdgowars team rank when idle (default on, refreshed every 15 min). |
 
