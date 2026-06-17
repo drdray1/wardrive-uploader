@@ -15,6 +15,7 @@ import time
 
 import display as disp
 import merge
+import stats
 import storage
 import upload
 
@@ -177,4 +178,9 @@ class UploadManager:
                         meta["attempts"], self.max_attempts)
             self.display.set_result(disp.ERROR, marks)
         time.sleep(RESULT_HOLD_SECONDS)
+        # Refresh the idle ticker so the new run's count shows immediately.
+        try:
+            self.display.set_message(stats.build_message(self.cfg))
+        except Exception as e:
+            log.debug("ticker refresh failed: %s", e)
         self.display.set_state(disp.IDLE)

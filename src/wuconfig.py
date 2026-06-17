@@ -56,7 +56,7 @@ _DEFAULTS = {
         "dedup": "lines",
     },
     "stats": {
-        # Scroll WiGLE + wdgowars account stats on the panel when idle.
+        # Scroll local archive stats (total networks, runs, last run) when idle.
         "enabled": "true",
         "refresh_minutes": "15",
     },

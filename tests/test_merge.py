@@ -189,29 +189,26 @@ def test_storage_meta_atomic_roundtrip():
     assert storage.load_meta(d)["upload_complete"] is True
 
 
-def test_stats_cache_fallback():
-    try:
-        import stats
-    except ImportError:
-        print("  (skip stats cache: requests not installed)")
-        return
+def test_stats_local():
+    import stats
+    import storage
+    base = tempfile.mkdtemp()
+    storage.update_meta(os.path.join(base, "marauder", "20260101-000000"),
+                        {"stamp": "20260101-000000", "device": "marauder",
+                         "stats": {"kept_rows": 100}, "upload_complete": True})
+    storage.update_meta(os.path.join(base, "piglet", "20260102-000000"),
+                        {"stamp": "20260102-000000", "device": "piglet",
+                         "stats": {"kept_rows": 50}, "upload_complete": False})
 
     class FakeCfg:
-        def getbool(self, s, k):
-            return True
         def get(self, s, k):
-            return "x"        # non-empty creds/key
+            return base
 
-    stats._last_good.update(wigle=None, wdgowars=None)
-    stats.wigle_stats = lambda *a, **k: {"nets": 1, "rank": 9, "month_rank": 152}
-    stats.wdgowars_team = lambda *a, **k: {"name": "LAB5", "rank": 5}
-    first = stats.build_message(FakeCfg())
-    assert "WIGLE MO #152" in first and "WDG LAB5 #5" in first
-    # Now both fetches fail -> message must still come from the cache.
-    stats.wigle_stats = lambda *a, **k: None
-    stats.wdgowars_team = lambda *a, **k: None
-    cached = stats.build_message(FakeCfg())
-    assert cached == first
+    msg = stats.build_message(FakeCfg())
+    assert "NETS 150" in msg        # 100 + 50
+    assert "RUNS 2" in msg
+    assert "LAST 50" in msg         # 20260102 run is newest
+    assert "PENDING 1" in msg       # the piglet run isn't upload_complete
 
 
 if __name__ == "__main__":

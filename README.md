@@ -17,8 +17,8 @@ merge and uploads finish on their own in the background, with the card already o
   200 MB capture is usually a single upload per service.
 - **Parallel uploads** to WiGLE + wdgowars, **resumable** across failures and reboots
   (per-part, per-service status tracked on disk).
-- **Live status** on the Scroll pHAT, plus an **idle ticker** showing your WiGLE monthly rank
-  and wdgowars team rank.
+- **Live status** on the Scroll pHAT, plus an **idle ticker** showing local archive stats
+  (total networks captured, runs, last run) — no network calls.
 - **Two copies of every run** — archived on the card *and* permanently on the Pi.
 - **One-command install** + systemd service; runs headless on boot.
 
@@ -94,7 +94,7 @@ Key options (see `config.example.ini` for the full list):
 | `[archive] local_dir` | Permanent copy kept on the Pi (default `/var/lib/wardrive-uploader/archive`). |
 | `[archive] retention_runs` / `retention_mb` | Prune oldest local runs so the Pi never fills up. Each is independent; `0` = unlimited (default prunes by total size only). |
 | `[display] brightness` / `rotate` | Panel brightness (0–255, scales the whole UI) and `180` if mounted upside‑down. |
-| `[stats] enabled` / `refresh_minutes` | Scroll your WiGLE monthly rank + wdgowars team rank when idle (default on, refreshed every 15 min). |
+| `[stats] enabled` / `refresh_minutes` | Scroll local archive stats (networks/runs/last) when idle (default on; also refreshes after each run). |
 
 > wdgowars uses its documented REST API (`POST /api/upload-csv`, header `X-API-Key`, field
 > `file`, 60 MB cap, `.gz` accepted). It's non‑blocking by default, so even if it has a hiccup
@@ -111,7 +111,7 @@ Key options (see `config.example.ini` for the full list):
 
 | State | Scroll pHAT shows | Card needed? |
 |-------|-------------------|:---:|
-| Idle / waiting | Scrolls your stats (e.g. `WIGLE MO #678  WDG LAB5 #5` — WiGLE monthly rank + wdgowars team rank), or a dim dot if stats are off/unavailable | — |
+| Idle / waiting | Scrolls local archive stats (e.g. `NETS 2239616  RUNS 9  LAST 26053`), or a dim dot if stats are off | — |
 | Scanning card | Dot circling a ring | yes |
 | Copying logs off | Bright comet sweeping right | yes |
 | **Safe to remove** | Steady **⬆** arrow, gentle pulse | **pull it now** |

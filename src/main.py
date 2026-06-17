@@ -218,7 +218,7 @@ def main(argv=None):
 
     try:
         if args.test_display:
-            display.set_message("WIGLE MO #678   WDG LAB5 #5")
+            display.set_message("NETS 2239616   RUNS 9   LAST 26053")
             display.set_state(disp.IDLE)
             time.sleep(10)                      # let the stats ticker scroll
             for state in (disp.SCANNING, disp.COPYING, disp.MERGING,
