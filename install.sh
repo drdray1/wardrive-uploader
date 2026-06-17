@@ -60,6 +60,20 @@ if [[ "$RUN_USER" != "root" ]]; then
   usermod -aG i2c "$RUN_USER" 2>/dev/null || true
 fi
 
+# --- 3b. stop the desktop from auto-mounting cards --------------------------
+# This appliance mounts cards itself; a desktop auto-mount would race it (two
+# read-write mounts of one FAT card). Tell udisks/the file manager to ignore
+# USB block devices. Our pyudev-based service still sees + mounts them.
+info "Disabling desktop auto-mount for USB storage..."
+UDEV_RULE="/etc/udev/rules.d/99-wardrive-no-automount.rules"
+cat > "$UDEV_RULE" <<'EOF'
+# Wardrive appliance: don't let the desktop auto-mount USB storage; the
+# wardrive-uploader service mounts inserted cards itself.
+SUBSYSTEM=="block", SUBSYSTEMS=="usb", ENV{UDISKS_IGNORE}="1"
+EOF
+udevadm control --reload 2>/dev/null || true
+udevadm trigger 2>/dev/null || true
+
 # --- 4. python venv + deps --------------------------------------------------
 # --system-site-packages so the venv can see apt's python3-smbus (the scrollphat
 # lib imports the system `smbus` module, which isn't pip-installable).

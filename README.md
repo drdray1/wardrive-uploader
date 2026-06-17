@@ -62,9 +62,10 @@ sudo ./install.sh
 ```
 
 The installer is idempotent and does everything: apt deps, a Python virtualenv, enables I²C,
-creates the config, and installs + starts the systemd service. It prompts for your WiGLE /
-wdgowars keys (you can skip and edit later). **If it enables I²C for the first time, reboot
-once** so the display lights up:
+disables desktop auto-mount of USB storage (so the service owns the card, not the file
+manager), creates the config, and installs + starts the systemd service. It prompts for your
+WiGLE / wdgowars keys (you can skip and edit later). **If it enables I²C for the first time,
+reboot once** so the display lights up:
 
 ```bash
 sudo reboot
