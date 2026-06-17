@@ -44,8 +44,10 @@ _DEFAULTS = {
         "retention_mb": "500",
     },
     "scan": {
-        # Directories (by name) skipped during the recursive card scan.
-        "exclude_dirs": "archive,System Volume Information,.Trash-1000,.Spotlight-V100,.fseventsd",
+        # Directories (by name) skipped during the recursive card scan. (Common
+        # OS metadata/trash dirs are always skipped regardless of this setting.)
+        # 'archive' = our on-card archive; 'combined' = a common manual-merge folder.
+        "exclude_dirs": "archive,combined",
     },
     "merge": {
         # lines = fast streaming exact-line dedup (default); none = concatenate;

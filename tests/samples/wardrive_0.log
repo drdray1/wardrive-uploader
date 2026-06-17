@@ -1,0 +1,5 @@
+WigleWifi-1.4,appRelease=v8,model=ESP32 Marauder,release=8.0,device=marauder,display=,board=esp32,brand=marauder
+MAC,SSID,AuthMode,FirstSeen,Channel,RSSI,CurrentLatitude,CurrentLongitude,AltitudeMeters,AccuracyMeters,Type
+AA:BB:CC:DD:EE:01,HomeWiFi,[WPA2-PSK-CCMP][ESS],2024-06-01 10:00:00,6,-50,40.1234,-111.5678,1400,5,WIFI
+AA:BB:CC:DD:EE:02,Cafe,[WPA2-PSK-CCMP][ESS],2024-06-01 10:01:00,11,-60,40.1244,-111.5688,1400,5,WIFI
+AA:BB:CC:DD:EE:03,,[OPEN],2024-06-01 10:02:00,1,-70,40.1254,-111.5698,1400,8,WIFI

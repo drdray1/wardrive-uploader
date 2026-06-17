@@ -50,6 +50,21 @@ def test_discover_finds_only_wigle(tmp_path=None):
     assert found[0].endswith("wardrive_1.csv")
 
 
+def test_discover_log_extension_and_junk():
+    import shutil
+    base = tempfile.mkdtemp()
+    # Marauder writes .log; macOS leaves ._ sidecars and system dirs around.
+    shutil.copy(M1, os.path.join(base, "wardrive_0.log"))
+    shutil.copy(M1, os.path.join(base, "._wardrive_0.log"))          # AppleDouble
+    os.makedirs(os.path.join(base, ".Trashes"), exist_ok=True)
+    shutil.copy(M1, os.path.join(base, ".Trashes", "deleted.csv"))   # system dir
+    os.makedirs(os.path.join(base, "combined"), exist_ok=True)
+    shutil.copy(M2, os.path.join(base, "combined", "old_combined.csv"))
+    found = merge.discover(base, ["archive", "combined"])
+    assert len(found) == 1
+    assert found[0].endswith("wardrive_0.log")
+
+
 def test_merge_lines_default_dedups_exact():
     # Default "lines" mode: M2's EE:02 row is byte-identical to M1's -> removed.
     out = tempfile.mktemp(suffix=".csv")

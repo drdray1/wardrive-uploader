@@ -160,6 +160,7 @@ sudo systemctl restart wardrive-uploader
 | Display stays dark | `i2cdetect -y 1` should show `74`. If not, enable I²C (`sudo raspi-config`) and **reboot**. |
 | `scrollphat` import error | Harmless — the built‑in `smbus2` fallback driver takes over. Status still shows. |
 | Card not detected / won't mount | Ensure it's FAT32/exFAT/ext4; `exfatprogs` is installed by the installer. Check `dmesg`. |
+| "No logs found" but logs are there | It matches `.csv`/`.wiglecsv`/`.log` with a `WigleWifi-` first line. Logs inside `archive/` or `combined/` (or `[scan] exclude_dirs`) are skipped by design. |
 | Uploads fail with auth error | Re‑check WiGLE API **name + token** in `/etc/wardrive-uploader/config.ini`. |
 | `413 Payload Too Large` | Uploads are gzipped + capped at `[upload] max_upload_mb` (55) and auto‑split; if it still trips, lower that value. |
 | wdgowars `429` / cooldown | Expected — it self‑paces `min_interval_seconds` (default 60) between uploads. |
@@ -180,8 +181,9 @@ sudo systemctl restart wardrive-uploader
 └───────────────────────────────┘        └──────────────────────────────────────┘
 ```
 
-- **Discovery** scans the whole card and matches files whose first line starts with
-  `WigleWifi-`, so it finds logs regardless of folder.
+- **Discovery** scans the whole card for `.csv` / `.wiglecsv` / `.log` files whose first line
+  starts with `WigleWifi-` (Marauder writes `wardrive_*.log`), so it finds logs regardless of
+  folder. OS metadata/trash dirs and macOS `._` sidecar files are ignored automatically.
 - **Card time is minimized**: while mounted it only *copies* the logs to the Pi and
   moves the originals into the on‑card `archive/` (an instant same‑filesystem rename),
   then unmounts and tells you it's safe to remove. The slow **merge and upload run

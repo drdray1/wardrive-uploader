@@ -62,14 +62,27 @@ def device_for_version(version):
     return DEVICE_BY_VERSION.get(version, "unknown")
 
 
+# Always skipped (OS metadata/trash), in addition to configured exclude_dirs.
+_SYSTEM_DIRS = {
+    "system volume information", ".spotlight-v100", ".fseventsd",
+    ".trashes", ".trash-1000", ".documentrevisions-v100", ".temporaryitems",
+}
+# WiGLE logs come as .csv, .wiglecsv, or .log (Marauder/Bruce write .log).
+_WIGLE_EXTS = (".csv", ".wiglecsv", ".log")
+
+
 def discover(mountpoint, exclude_dirs):
-    """Recursively find WiGLE CSV files under mountpoint, skipping excluded dirs."""
-    exclude = {d.lower() for d in exclude_dirs}
+    """Recursively find WiGLE log files under mountpoint. Matches by extension
+    AND content (first line starts with 'WigleWifi-'), skipping excluded and
+    system dirs plus macOS '._' AppleDouble sidecar files."""
+    exclude = {d.lower() for d in exclude_dirs} | _SYSTEM_DIRS
     found = []
     for root, dirs, files in os.walk(mountpoint):
         dirs[:] = [d for d in dirs if d.lower() not in exclude]
         for name in files:
-            if not name.lower().endswith((".csv", ".wiglecsv")):
+            if name.startswith("._"):                 # macOS AppleDouble junk
+                continue
+            if not name.lower().endswith(_WIGLE_EXTS):
                 continue
             full = os.path.join(root, name)
             if is_wigle_csv(full):
