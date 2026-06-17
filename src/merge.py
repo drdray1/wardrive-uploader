@@ -10,6 +10,7 @@ card shares one WiGLE version (Marauder -> 1.4, Piglet -> 1.6). We still detect
 the version and can normalize 1.4 -> 1.6, but never mix versions in one output.
 """
 import csv
+import gzip
 import io
 import logging
 import os
@@ -265,56 +266,89 @@ def merge(paths, out_path, normalize_to=None, dedup="lines"):
 
 
 class _PartWriter:
-    """Streams lines into rolling part files, each capped at ~max_bytes, every
-    part starting with the same two header lines. Constant memory."""
+    """Streams lines into rolling part files, each kept under max_bytes, every
+    part starting with the same two header lines. Constant memory.
 
-    def __init__(self, out_dir, base, header_lines, max_bytes):
+    With gzip_out=True the parts are gzip-compressed (.csv.gz) and rollover is
+    decided by the COMPRESSED size, so each .gz is guaranteed under the cap
+    regardless of how well the data compresses. Compressed size is sampled every
+    `check_every` rows (a flush + fstat) to keep compression efficient."""
+
+    def __init__(self, out_dir, base, header_lines, max_bytes, gzip_out=False,
+                 check_every=4000):
         self.out_dir = out_dir
         self.base = base
-        self.header = header_lines          # list of 2 strings ending in \n
+        self.header = [h.encode("utf-8") for h in header_lines]
+        self.header_bytes = sum(len(h) for h in self.header)
         self.max_bytes = max_bytes
-        self.header_bytes = sum(len(h.encode("utf-8")) for h in header_lines)
+        self.gzip_out = gzip_out
+        self.ext = ".csv.gz" if gzip_out else ".csv"
+        self.check_every = check_every
         self.parts = []
-        self._f = None
-        self._bytes = 0
+        self._raw = None        # underlying binary file
+        self._f = None          # gzip wrapper or same as _raw
+        self._bytes = 0         # uncompressed bytes (plain-mode rollover)
+        self._since_check = 0
         self._has_data = False
         self._idx = 0
 
     def _open_new(self):
         self._idx += 1
-        path = os.path.join(self.out_dir, f"{self.base}_part{self._idx:03d}.csv")
-        self._f = open(path, "w", encoding="utf-8", errors="replace", newline="")
+        path = os.path.join(self.out_dir, f"{self.base}_part{self._idx:03d}{self.ext}")
+        self._raw = open(path, "wb")
+        self._f = gzip.GzipFile(fileobj=self._raw, mode="wb") if self.gzip_out else self._raw
         for h in self.header:
             self._f.write(h)
         self._bytes = self.header_bytes
+        self._since_check = 0
         self._has_data = False
         self.parts.append(path)
 
+    def _compressed_size(self):
+        self._f.flush()
+        self._raw.flush()
+        return os.fstat(self._raw.fileno()).st_size
+
+    def _should_roll(self, nbytes):
+        if not self._has_data:
+            return False
+        if self.gzip_out:
+            self._since_check += 1
+            if self._since_check < self.check_every:
+                return False
+            self._since_check = 0
+            return self._compressed_size() >= self.max_bytes
+        return self._bytes + nbytes > self.max_bytes
+
     def write(self, line):
-        b = len(line.encode("utf-8"))
+        data = line.encode("utf-8")
         if self._f is None:
             self._open_new()
-        elif self._has_data and self._bytes + b > self.max_bytes:
-            self._f.close()
+        elif self._should_roll(len(data)):
+            self.close()
             self._open_new()
-        self._f.write(line)
-        self._bytes += b
+        self._f.write(data)
+        self._bytes += len(data)
         self._has_data = True
 
     def close(self):
-        if self._f:
-            self._f.close()
-            self._f = None
+        if self._f is not None:
+            self._f.close()                       # flushes gzip trailer
+            if self.gzip_out:
+                self._raw.close()
+            self._f = self._raw = None
 
 
-def merge_split(paths, out_dir, base, max_bytes, normalize_to=None, dedup="lines"):
+def merge_split(paths, out_dir, base, max_bytes, normalize_to=None, dedup="lines",
+                gzip_out=False):
     """Like merge(), but writes one or more part files each <= max_bytes (for
-    services that cap upload size). Returns (part_paths, stats)."""
+    services that cap upload size). gzip_out compresses parts (.csv.gz) and caps
+    by compressed size. Returns (part_paths, stats)."""
     if not paths:
         raise ValueError("no input files to merge")
     started = time.monotonic()
     info = _resolve(paths, normalize_to, dedup)
-    pw = _PartWriter(out_dir, base, [info["pre"], info["col"]], max_bytes)
+    pw = _PartWriter(out_dir, base, [info["pre"], info["col"]], max_bytes, gzip_out=gzip_out)
     total, kept = _stream(paths, info, pw.write)
     pw.close()
     if not pw.parts:                       # no data rows at all - still emit one
@@ -323,12 +357,12 @@ def merge_split(paths, out_dir, base, max_bytes, normalize_to=None, dedup="lines
     sizes = [os.path.getsize(p) for p in pw.parts]
     stats = _base_stats(paths, info)
     stats.update(total_rows=total, kept_rows=kept, duplicates_removed=total - kept,
-                 bytes=sum(sizes), num_parts=len(pw.parts),
+                 bytes=sum(sizes), num_parts=len(pw.parts), gzip=gzip_out,
                  max_part_bytes=max(sizes) if sizes else 0,
                  oversize=any(s > max_bytes for s in sizes))
-    log.info("merged %s files -> %s/%s rows (%s dupes removed) into %s part(s), "
+    log.info("merged %s files -> %s/%s rows (%s dupes removed) into %s %spart(s), "
              "%s bytes total, device=%s, mode=%s in %.1fs",
              stats["input_files"], kept, total, stats["duplicates_removed"],
-             stats["num_parts"], stats["bytes"], stats["device"],
-             stats["dedup_mode"], time.monotonic() - started)
+             stats["num_parts"], "gz " if gzip_out else "", stats["bytes"],
+             stats["device"], stats["dedup_mode"], time.monotonic() - started)
     return pw.parts, stats

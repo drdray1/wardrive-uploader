@@ -116,7 +116,8 @@ class Appliance:
                 max_bytes = max(1, self.cfg.getint("upload", "max_upload_mb")) * 1024 * 1024
                 part_paths, stats = merge.merge_split(
                     copied, archive_dir, base, max_bytes,
-                    dedup=self.cfg.get("merge", "dedup"))
+                    dedup=self.cfg.get("merge", "dedup"),
+                    gzip_out=self.cfg.getbool("upload", "gzip"))
                 meta["stats"] = stats
                 meta["parts"] = [os.path.basename(p) for p in part_paths]
                 storage.update_meta(archive_dir, meta)

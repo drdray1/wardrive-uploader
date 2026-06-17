@@ -13,6 +13,10 @@ from requests.auth import HTTPBasicAuth
 log = logging.getLogger("wardrive.upload")
 
 
+def _content_type(fname):
+    return "application/gzip" if fname.endswith(".gz") else "text/csv"
+
+
 class Result:
     def __init__(self, name, ok, message="", transid=None, status=None):
         self.name = name
@@ -43,7 +47,7 @@ class WigleUploader:
     def upload(self, path):
         fname = os.path.basename(path)
         with open(path, "rb") as f:
-            files = {"file": (fname, f, "text/csv")}
+            files = {"file": (fname, f, _content_type(fname))}
             data = {"donate": "true" if self.donate else "false"}
             resp = requests.post(
                 self.URL, headers={"Accept": "application/json"},
@@ -94,7 +98,7 @@ class WdgowarsUploader:
         self._cooldown()
         fname = os.path.basename(path)
         with open(path, "rb") as f:
-            files = {self.field: (fname, f, "text/csv")}
+            files = {self.field: (fname, f, _content_type(fname))}
             # Send the API key both as a header and form field to cover variants.
             headers = {"Accept": "application/json", "X-API-Key": self.api_key}
             data = {"api_key": self.api_key}

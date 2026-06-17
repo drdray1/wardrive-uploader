@@ -75,8 +75,9 @@ Key options (see `config.example.ini` for the full list):
 | `[archive] retention_runs` / `retention_mb` | Prune oldest local runs so the Pi never fills up. |
 | `[display] brightness` / `rotate` | Panel brightness (0–255) and `180` if mounted upside‑down. |
 
-> ⚠️ The wdgowars API is **unverified** (docs are behind login). It's non‑blocking by default,
-> so WiGLE always works even if the wdgowars endpoint/field names need tweaking in the config.
+> wdgowars uses its documented REST API (`POST /api/upload-csv`, header `X-API-Key`, field
+> `file`, 60 MB cap, `.gz` accepted). It's non‑blocking by default, so even if it has a hiccup
+> WiGLE still succeeds and your logs are safe in the archives.
 
 ---
 
@@ -140,7 +141,7 @@ sudo systemctl restart wardrive-uploader
 | `scrollphat` import error | Harmless — the built‑in `smbus2` fallback driver takes over. Status still shows. |
 | Card not detected / won't mount | Ensure it's FAT32/exFAT/ext4; `exfatprogs` is installed by the installer. Check `dmesg`. |
 | Uploads fail with auth error | Re‑check WiGLE API **name + token** in `/etc/wardrive-uploader/config.ini`. |
-| `413 Payload Too Large` | Both services cap at 15 MB. Files are auto‑split; if it still trips, lower `[upload] max_upload_mb`. |
+| `413 Payload Too Large` | Uploads are gzipped + capped at `[upload] max_upload_mb` (55) and auto‑split; if it still trips, lower that value. |
 | wdgowars `429` / cooldown | Expected — it self‑paces `min_interval_seconds` (default 60) between uploads. |
 | Uploads fail, clock looks wrong | Zero W has no RTC — give it a minute on Wi‑Fi to sync NTP (`timedatectl`). |
 | Want to test without a card | `sudo .venv/bin/python src/main.py --test-display` cycles every status. |
@@ -165,18 +166,16 @@ sudo systemctl restart wardrive-uploader
   moves the originals into the on‑card `archive/` (an instant same‑filesystem rename),
   then unmounts and tells you it's safe to remove. The slow **merge and upload run
   afterwards**, off‑card.
-- **Merge** streams the logs into **size‑capped parts** (default ≤14 MB; both services cap
-  uploads at 15 MB), keeping a header pair on every part. By default (`[merge] dedup = lines`)
-  it drops byte‑identical duplicate rows without parsing fields — fast and constant‑memory
-  (important on a 512 MB Zero W). Set `dedup = none` to just concatenate or `dedup = fields`
-  to dedupe on `MAC + FirstSeen`. WiGLE and wdgowars dedupe server‑side regardless. Marauder
-  writes WigleWifi‑1.4 and Piglet writes 1.6; since one card = one device, no mixing happens
-  (a 1.4→1.6 normalizer exists for safety, and forces the field path).
-- **Uploads** run the two services **in parallel** (one thread each), so WiGLE overlaps
-  wdgowars. **wdgowars enforces a cooldown**, so its thread self‑paces
-  (`[wdgowars] min_interval_seconds`, default 60) — that rate limit, not WiGLE, is the floor
-  on total time for big captures. Per‑part, per‑service success is tracked in `meta.json`, so
-  retries only re‑send what actually failed.
+- **Merge** streams the logs together, de‑duping (default `[merge] dedup = lines`: drop
+  byte‑identical rows, fast + constant‑memory; or `none`/`fields`), then writes **gzipped,
+  size‑capped parts** (`.csv.gz`, default ≤55 MB each — wdgowars caps at 60 MB, WiGLE at
+  ~180 MiB; both accept gzip). gzip shrinks WiGLE CSV ~6–8×, so a typical capture — even a
+  200 MB one — fits in **a single part / single upload**. Marauder writes WigleWifi‑1.4 and
+  Piglet 1.6; one card = one device so no mixing (a 1.4→1.6 normalizer exists for safety).
+- **Uploads** run the two services **in parallel** (one thread each). wdgowars enforces a
+  cooldown, so its thread self‑paces (`[wdgowars] min_interval_seconds`, default 60) — only
+  relevant when a capture is big enough to need multiple parts. Per‑part, per‑service success
+  is tracked in `meta.json`, so retries only re‑send what actually failed.
 - **Durable uploads**: each run's status is tracked in `meta.json`. Failed/incomplete
   uploads are re‑queued automatically (periodically and on reboot) until they succeed
   or hit `max_attempts`, so a flaky network never loses data.

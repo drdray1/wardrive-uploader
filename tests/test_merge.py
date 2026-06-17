@@ -123,6 +123,21 @@ def test_merge_split_single_part_when_small():
     assert stats["kept_rows"] == 2
 
 
+def test_merge_split_gzip():
+    import gzip as _gz
+    out_dir = tempfile.mkdtemp()
+    parts, stats = merge.merge_split([M1, M2], out_dir, "run", 55 * 1024 * 1024,
+                                     gzip_out=True)
+    assert stats["gzip"] is True
+    assert all(p.endswith(".csv.gz") for p in parts)
+    # Decompress and verify it's a valid WiGLE CSV with the kept data.
+    rows = list(csv.reader(io := _gz.open(parts[0], "rt", newline="")))
+    io.close()
+    assert rows[0][0].startswith("WigleWifi-")
+    assert rows[1][0] == "MAC"
+    assert len(rows) - 2 == stats["kept_rows"]
+
+
 def test_piglet_16_passthrough():
     out = tempfile.mktemp(suffix=".csv")
     stats = merge.merge([P1], out)

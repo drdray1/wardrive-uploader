@@ -19,8 +19,8 @@ _DEFAULTS = {
     "wdgowars": {
         "enabled": "true",
         "api_key": "",
-        # NOTE: endpoint/field names are UNVERIFIED (docs are behind login).
-        # wdgowars failures are non-blocking by default (see [upload] required).
+        # Verified against wdgwars.pl Developer API docs: POST /api/upload-csv,
+        # header X-API-Key, multipart field "file" (.csv/.log/.gz), 60 MB cap.
         "endpoint": "https://wdgwars.pl/api/upload-csv",
         "field": "file",
         "min_interval_seconds": "60",   # cooldown wdgowars enforces between uploads
@@ -31,7 +31,11 @@ _DEFAULTS = {
         "retries": "3",          # per-attempt retries within one upload pass
         "max_attempts": "10",    # background passes before giving up a run
         "timeout": "120",
-        "max_upload_mb": "14",   # split combined file into parts <= this (cap is 15)
+        # Cap per uploaded file. wdgowars=60MB, WiGLE~180MiB -> 55 is safe for
+        # both. With gzip on, this caps the COMPRESSED size, so most runs fit in
+        # one part.
+        "max_upload_mb": "55",
+        "gzip": "true",          # gzip each part before upload (both services accept .gz)
     },
     "archive": {
         "oncard_folder": "archive",

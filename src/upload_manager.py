@@ -112,7 +112,8 @@ class UploadManager:
             max_bytes = max(1, self.cfg.getint("upload", "max_upload_mb")) * 1024 * 1024
             part_paths, stats = merge.merge_split(
                 sources, archive_dir, base, max_bytes,
-                dedup=self.cfg.get("merge", "dedup"))
+                dedup=self.cfg.get("merge", "dedup"),
+                gzip_out=self.cfg.getbool("upload", "gzip"))
             meta["parts"] = [os.path.basename(p) for p in part_paths]
             meta["stats"] = stats
             meta.pop("combined_file", None)
