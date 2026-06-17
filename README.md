@@ -115,8 +115,9 @@ didn't (it'll keep retrying in the background).
 
 - **On the card:** uploaded originals are moved to `…/archive/<UTC-timestamp>/`, leaving the
   wardrive folder empty.
-- **On the Pi:** a permanent copy of the originals + the merged file + a `meta.json` (device,
-  version, row counts, upload results) under `/var/lib/wardrive-uploader/archive/<device>/<ts>/`.
+- **On the Pi:** a permanent copy of the originals (`sources/`) + the merged part file(s) + a
+  `meta.json` (device, version, row counts, per‑part upload results) under
+  `/var/lib/wardrive-uploader/archive/<device>/<ts>/`.
 - **Logs:** `journalctl -u wardrive-uploader -f`
 
 ---
@@ -139,6 +140,8 @@ sudo systemctl restart wardrive-uploader
 | `scrollphat` import error | Harmless — the built‑in `smbus2` fallback driver takes over. Status still shows. |
 | Card not detected / won't mount | Ensure it's FAT32/exFAT/ext4; `exfatprogs` is installed by the installer. Check `dmesg`. |
 | Uploads fail with auth error | Re‑check WiGLE API **name + token** in `/etc/wardrive-uploader/config.ini`. |
+| `413 Payload Too Large` | Both services cap at 15 MB. Files are auto‑split; if it still trips, lower `[upload] max_upload_mb`. |
+| wdgowars `429` / cooldown | Expected — it self‑paces `min_interval_seconds` (default 60) between uploads. |
 | Uploads fail, clock looks wrong | Zero W has no RTC — give it a minute on Wi‑Fi to sync NTP (`timedatectl`). |
 | Want to test without a card | `sudo .venv/bin/python src/main.py --test-display` cycles every status. |
 | Dry run a real card | `sudo .venv/bin/python src/main.py --dry-run /dev/sda1` (no upload, no archive). |
@@ -162,13 +165,16 @@ sudo systemctl restart wardrive-uploader
   moves the originals into the on‑card `archive/` (an instant same‑filesystem rename),
   then unmounts and tells you it's safe to remove. The slow **merge and upload run
   afterwards**, off‑card.
-- **Merge** streams the logs into one file, keeping a single header pair. By default
-  (`[merge] dedup = lines`) it drops byte‑identical duplicate rows without parsing fields —
-  fast and constant‑memory (important on a 512 MB Zero W). Set `dedup = none` to just
-  concatenate (fastest, bigger file) or `dedup = fields` to dedupe on `MAC + FirstSeen`
-  (smallest, slowest). WiGLE and wdgowars dedupe server‑side regardless. Marauder writes
-  WigleWifi‑1.4 and Piglet writes 1.6; since one card = one device, no mixing happens (a
-  1.4→1.6 normalizer exists for safety, and forces the field path).
+- **Merge** streams the logs into **size‑capped parts** (default ≤14 MB; both services cap
+  uploads at 15 MB), keeping a header pair on every part. By default (`[merge] dedup = lines`)
+  it drops byte‑identical duplicate rows without parsing fields — fast and constant‑memory
+  (important on a 512 MB Zero W). Set `dedup = none` to just concatenate or `dedup = fields`
+  to dedupe on `MAC + FirstSeen`. WiGLE and wdgowars dedupe server‑side regardless. Marauder
+  writes WigleWifi‑1.4 and Piglet writes 1.6; since one card = one device, no mixing happens
+  (a 1.4→1.6 normalizer exists for safety, and forces the field path).
+- **Uploads** send each part to each service. **wdgowars enforces a cooldown**, so the
+  uploader self‑paces (`[wdgowars] min_interval_seconds`, default 60). Per‑part, per‑service
+  success is tracked in `meta.json`, so retries only re‑send what actually failed.
 - **Durable uploads**: each run's status is tracked in `meta.json`. Failed/incomplete
   uploads are re‑queued automatically (periodically and on reboot) until they succeed
   or hit `max_attempts`, so a flaky network never loses data.

@@ -98,6 +98,31 @@ def test_normalize_14_to_16():
     assert stats["dedup_mode"] == "fields"   # normalization forces field path
 
 
+def test_merge_split_into_parts():
+    # Tiny cap forces multiple parts; each must carry the header and stay <= cap,
+    # and no data rows may be lost across the split.
+    out_dir = tempfile.mkdtemp()
+    cap = 220  # bytes - small enough to force several parts
+    parts, stats = merge.merge_split([M1, M2], out_dir, "run", cap)
+    assert stats["num_parts"] >= 2
+    assert len(parts) == stats["num_parts"]
+    total_data = 0
+    for p in parts:
+        rows = _read(p)
+        assert rows[0][0].startswith("WigleWifi-")      # pre-header on every part
+        assert rows[1][0] == "MAC"                       # column header on every part
+        total_data += len(rows) - 2
+        assert os.path.getsize(p) <= cap or (len(rows) - 2) == 1  # one big row may exceed
+    assert total_data == stats["kept_rows"]
+
+
+def test_merge_split_single_part_when_small():
+    out_dir = tempfile.mkdtemp()
+    parts, stats = merge.merge_split([P1], out_dir, "run", 15 * 1024 * 1024)
+    assert stats["num_parts"] == 1
+    assert stats["kept_rows"] == 2
+
+
 def test_piglet_16_passthrough():
     out = tempfile.mktemp(suffix=".csv")
     stats = merge.merge([P1], out)

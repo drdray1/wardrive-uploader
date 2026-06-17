@@ -23,6 +23,7 @@ _DEFAULTS = {
         # wdgowars failures are non-blocking by default (see [upload] required).
         "endpoint": "https://wdgwars.pl/api/upload-csv",
         "field": "file",
+        "min_interval_seconds": "60",   # cooldown wdgowars enforces between uploads
     },
     "upload": {
         # Comma-separated uploaders that MUST succeed (others are best-effort).
@@ -30,6 +31,7 @@ _DEFAULTS = {
         "retries": "3",          # per-attempt retries within one upload pass
         "max_attempts": "10",    # background passes before giving up a run
         "timeout": "120",
+        "max_upload_mb": "14",   # split combined file into parts <= this (cap is 15)
     },
     "archive": {
         "oncard_folder": "archive",

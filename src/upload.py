@@ -68,16 +68,30 @@ class WigleUploader:
 class WdgowarsUploader:
     """UNVERIFIED API. Endpoint/field names come from config and may need
     adjusting against your logged-in wdgowars docs. Kept non-blocking by default.
+
+    wdgowars enforces a cooldown between uploads, so we self-pace: every POST
+    (including retries) waits until at least min_interval seconds have passed
+    since the previous one.
     """
     name = "wdgowars"
 
-    def __init__(self, api_key, endpoint, field="file", timeout=120):
+    def __init__(self, api_key, endpoint, field="file", timeout=120, min_interval=60):
         self.api_key = api_key
         self.endpoint = endpoint
         self.field = field
         self.timeout = timeout
+        self.min_interval = min_interval
+        self._last = None
+
+    def _cooldown(self):
+        if self._last is not None:
+            wait = self.min_interval - (time.monotonic() - self._last)
+            if wait > 0:
+                log.info("wdgowars cooldown: waiting %.0fs", wait)
+                time.sleep(wait)
 
     def upload(self, path):
+        self._cooldown()
         fname = os.path.basename(path)
         with open(path, "rb") as f:
             files = {self.field: (fname, f, "text/csv")}
@@ -88,6 +102,7 @@ class WdgowarsUploader:
                 self.endpoint, headers=headers, files=files, data=data,
                 timeout=self.timeout,
             )
+        self._last = time.monotonic()
         ok = resp.ok
         message = f"HTTP {resp.status_code}"
         try:
@@ -139,7 +154,8 @@ def build_uploaders(cfg):
             uploaders.append(WdgowarsUploader(
                 key, cfg.get("wdgowars", "endpoint"),
                 field=cfg.get("wdgowars", "field"),
-                timeout=cfg.getint("upload", "timeout")))
+                timeout=cfg.getint("upload", "timeout"),
+                min_interval=cfg.getint("wdgowars", "min_interval_seconds")))
         else:
             log.warning("wdgowars enabled but api_key missing - skipping")
     return uploaders

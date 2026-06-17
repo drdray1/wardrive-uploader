@@ -99,42 +99,52 @@ class UploadManager:
         if meta.get("upload_complete"):
             return
 
-        # Merge off-card from the copied sources (if not already merged).
-        combined_name = meta.get("combined_file")
-        combined_path = os.path.join(archive_dir, combined_name) if combined_name else None
-        if not combined_path or not os.path.exists(combined_path):
+        # Merge off-card into size-capped parts (if not already merged).
+        parts = meta.get("parts")
+        part_paths = [os.path.join(archive_dir, n) for n in parts] if parts else []
+        if not part_paths or not all(os.path.exists(p) for p in part_paths):
             sources = sorted(glob.glob(os.path.join(archive_dir, "sources", "*")))
             if not sources:
                 log.error("no source files in %s; cannot merge", archive_dir)
                 return
             self.display.set_state(disp.MERGING)
-            out_name = f"wardrive_combined_{meta.get('stamp', 'run')}.csv"
-            combined_path = os.path.join(archive_dir, out_name)
-            out_part = combined_path + ".part"
-            stats = merge.merge(sources, out_part, dedup=self.cfg.get("merge", "dedup"))
-            os.replace(out_part, combined_path)   # atomic: never upload a partial file
-            meta["combined_file"] = out_name
+            base = f"wardrive_{meta.get('device', 'run')}_{meta.get('stamp', 'run')}"
+            max_bytes = max(1, self.cfg.getint("upload", "max_upload_mb")) * 1024 * 1024
+            part_paths, stats = merge.merge_split(
+                sources, archive_dir, base, max_bytes,
+                dedup=self.cfg.get("merge", "dedup"))
+            meta["parts"] = [os.path.basename(p) for p in part_paths]
             meta["stats"] = stats
+            meta.pop("combined_file", None)
             storage.update_meta(archive_dir, meta)
-            if stats.get("oversize"):
-                log.warning("combined file exceeds WiGLE 180MiB limit (%s bytes)",
-                            stats["bytes"])
+        parts = meta["parts"]
 
-        # Upload to each enabled uploader (skip ones already succeeded).
-        prior = {r["uploader"]: r for r in meta.get("uploads", [])}
+        # Upload every part to every enabled uploader, skipping (part, uploader)
+        # pairs that already succeeded. wdgowars paces itself (cooldown).
+        status = meta.get("uploads")
+        if not isinstance(status, dict):
+            status = {}                       # migrate/ignore any old list format
         meta["attempts"] = meta.get("attempts", 0) + 1
         self.display.set_state(disp.UPLOADING, progress=0.0)
-        total = len(self.uploaders)
-        for i, up in enumerate(self.uploaders):
-            if prior.get(up.name, {}).get("ok"):
-                self.display.set_progress((i + 1) / max(1, total))
-                continue
-            res = upload.upload_with_retry(up, combined_path, retries=self.retries)
-            prior[up.name] = res.as_dict()
-            self.display.set_progress((i + 1) / max(1, total))
+        units = max(1, len(parts) * len(self.uploaders))
+        done = 0
+        for up in self.uploaders:
+            for pname in parts:
+                ps = status.setdefault(pname, {})
+                if ps.get(up.name, {}).get("ok"):
+                    done += 1
+                    self.display.set_progress(done / units)
+                    continue
+                res = upload.upload_with_retry(
+                    up, os.path.join(archive_dir, pname), retries=self.retries)
+                ps[up.name] = res.as_dict()
+                done += 1
+                self.display.set_progress(done / units)
+            storage.update_meta(archive_dir, {**meta, "uploads": status})
 
-        meta["uploads"] = list(prior.values())
-        ok_names = {n for n, r in prior.items() if r.get("ok")}
+        meta["uploads"] = status
+        ok_names = {u.name for u in self.uploaders
+                    if all(status.get(pn, {}).get(u.name, {}).get("ok") for pn in parts)}
         all_ok = ok_names.issuperset({u.name for u in self.uploaders})
         required_ok = self.required.issubset(ok_names) if self.required else bool(ok_names)
 
