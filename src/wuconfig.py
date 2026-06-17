@@ -36,6 +36,7 @@ _DEFAULTS = {
         # one part.
         "max_upload_mb": "55",
         "gzip": "true",          # gzip each part before upload (both services accept .gz)
+        "gzip_level": "6",       # 1=fastest .. 9=smallest; 6 is the sweet spot on ARMv6
     },
     "archive": {
         "oncard_folder": "archive",

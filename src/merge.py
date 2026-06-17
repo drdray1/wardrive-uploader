@@ -288,13 +288,14 @@ class _PartWriter:
     `check_every` rows (a flush + fstat) to keep compression efficient."""
 
     def __init__(self, out_dir, base, header_lines, max_bytes, gzip_out=False,
-                 check_every=4000):
+                 compresslevel=6, check_every=4000):
         self.out_dir = out_dir
         self.base = base
         self.header = [h.encode("utf-8") for h in header_lines]
         self.header_bytes = sum(len(h) for h in self.header)
         self.max_bytes = max_bytes
         self.gzip_out = gzip_out
+        self.compresslevel = compresslevel
         self.ext = ".csv.gz" if gzip_out else ".csv"
         self.check_every = check_every
         self.parts = []
@@ -309,7 +310,9 @@ class _PartWriter:
         self._idx += 1
         path = os.path.join(self.out_dir, f"{self.base}_part{self._idx:03d}{self.ext}")
         self._raw = open(path, "wb")
-        self._f = gzip.GzipFile(fileobj=self._raw, mode="wb") if self.gzip_out else self._raw
+        self._f = (gzip.GzipFile(fileobj=self._raw, mode="wb",
+                                 compresslevel=self.compresslevel)
+                   if self.gzip_out else self._raw)
         for h in self.header:
             self._f.write(h)
         self._bytes = self.header_bytes
@@ -353,7 +356,7 @@ class _PartWriter:
 
 
 def merge_split(paths, out_dir, base, max_bytes, normalize_to=None, dedup="lines",
-                gzip_out=False):
+                gzip_out=False, compresslevel=6):
     """Like merge(), but writes one or more part files each <= max_bytes (for
     services that cap upload size). gzip_out compresses parts (.csv.gz) and caps
     by compressed size. Returns (part_paths, stats)."""
@@ -361,7 +364,8 @@ def merge_split(paths, out_dir, base, max_bytes, normalize_to=None, dedup="lines
         raise ValueError("no input files to merge")
     started = time.monotonic()
     info = _resolve(paths, normalize_to, dedup)
-    pw = _PartWriter(out_dir, base, [info["pre"], info["col"]], max_bytes, gzip_out=gzip_out)
+    pw = _PartWriter(out_dir, base, [info["pre"], info["col"]], max_bytes,
+                     gzip_out=gzip_out, compresslevel=compresslevel)
     total, kept = _stream(paths, info, pw.write)
     pw.close()
     if not pw.parts:                       # no data rows at all - still emit one

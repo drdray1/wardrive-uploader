@@ -18,12 +18,13 @@ def _content_type(fname):
 
 
 class Result:
-    def __init__(self, name, ok, message="", transid=None, status=None):
+    def __init__(self, name, ok, message="", transid=None, status=None, detail=None):
         self.name = name
         self.ok = ok
         self.message = message
         self.transid = transid
         self.status = status
+        self.detail = detail or {}      # parsed counts: imported/captured/etc.
 
     def as_dict(self):
         return {
@@ -32,7 +33,19 @@ class Result:
             "message": self.message,
             "transid": self.transid,
             "status": self.status,
+            "detail": self.detail,
         }
+
+
+# wdgowars/WiGLE result count fields worth recording for forensics.
+_DETAIL_KEYS = ("imported", "captured", "updated", "duplicates", "no_gps",
+                "bad_rows", "results")
+
+
+def _detail(body):
+    if not isinstance(body, dict):
+        return {}
+    return {k: body[k] for k in _DETAIL_KEYS if k in body}
 
 
 class WigleUploader:
@@ -43,35 +56,37 @@ class WigleUploader:
         self.auth = HTTPBasicAuth(api_name, api_token)
         self.donate = donate
         self.timeout = timeout
+        self.session = requests.Session()      # reuse TCP/TLS across parts + retries
 
     def upload(self, path):
         fname = os.path.basename(path)
         with open(path, "rb") as f:
             files = {"file": (fname, f, _content_type(fname))}
             data = {"donate": "true" if self.donate else "false"}
-            resp = requests.post(
+            resp = self.session.post(
                 self.URL, headers={"Accept": "application/json"},
                 auth=self.auth, files=files, data=data, timeout=self.timeout,
             )
         ok = False
         message = f"HTTP {resp.status_code}"
         transid = None
+        detail = {}
         try:
             body = resp.json()
             ok = bool(body.get("success"))
             message = body.get("message", message)
+            detail = _detail(body)
             results = body.get("results") or []
             if results and isinstance(results, list):
                 transid = results[0].get("transid")
             transid = transid or body.get("transid")
         except ValueError:
             message = resp.text[:200]
-        return Result(self.name, ok and resp.ok, message, transid, resp.status_code)
+        return Result(self.name, ok and resp.ok, message, transid, resp.status_code, detail)
 
 
 class WdgowarsUploader:
-    """UNVERIFIED API. Endpoint/field names come from config and may need
-    adjusting against your logged-in wdgowars docs. Kept non-blocking by default.
+    """wdgowars CSV upload (POST /api/upload-csv, X-API-Key, multipart "file").
 
     wdgowars enforces a cooldown between uploads, so we self-pace: every POST
     (including retries) waits until at least min_interval seconds have passed
@@ -86,6 +101,7 @@ class WdgowarsUploader:
         self.timeout = timeout
         self.min_interval = min_interval
         self._last = None
+        self.session = requests.Session()      # reuse TCP/TLS across parts + retries
 
     def _cooldown(self):
         if self._last is not None:
@@ -102,21 +118,23 @@ class WdgowarsUploader:
             # Send the API key both as a header and form field to cover variants.
             headers = {"Accept": "application/json", "X-API-Key": self.api_key}
             data = {"api_key": self.api_key}
-            resp = requests.post(
+            resp = self.session.post(
                 self.endpoint, headers=headers, files=files, data=data,
                 timeout=self.timeout,
             )
         self._last = time.monotonic()
         ok = resp.ok
         message = f"HTTP {resp.status_code}"
+        detail = {}
         try:
             body = resp.json()
             if isinstance(body, dict):
                 ok = bool(body.get("success", resp.ok))
                 message = body.get("message", message)
+                detail = _detail(body.get("result", body))   # v1 inlines; some nest in "result"
         except ValueError:
             message = resp.text[:200]
-        return Result(self.name, ok, message, None, resp.status_code)
+        return Result(self.name, ok, message, None, resp.status_code, detail)
 
 
 def upload_with_retry(uploader, path, retries=3, backoff=5):

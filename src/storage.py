@@ -93,9 +93,16 @@ def update_meta(archive_dir, meta):
 
 
 def _write_meta(archive_dir, meta):
+    # Atomic write: a truncated meta.json (power loss mid-write) would make the
+    # run unreadable and silently un-resumable. Write a temp file then replace.
     os.makedirs(archive_dir, exist_ok=True)
-    with open(os.path.join(archive_dir, "meta.json"), "w", encoding="utf-8") as f:
+    path = os.path.join(archive_dir, "meta.json")
+    tmp = path + ".tmp"
+    with open(tmp, "w", encoding="utf-8") as f:
         json.dump(meta, f, indent=2, sort_keys=True)
+        f.flush()
+        os.fsync(f.fileno())
+    os.replace(tmp, path)
 
 
 def free_mb(path):

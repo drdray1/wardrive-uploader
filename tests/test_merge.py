@@ -153,6 +153,20 @@ def test_merge_split_gzip():
     assert len(rows) - 2 == stats["kept_rows"]
 
 
+def test_merge_split_gzip_level():
+    import gzip as _gz
+    out_dir = tempfile.mkdtemp()
+    # A low compression level must still produce a valid, complete .gz under cap.
+    parts, stats = merge.merge_split([M1, M2], out_dir, "run", 55 * 1024 * 1024,
+                                     gzip_out=True, compresslevel=1)
+    assert len(parts) == 1
+    with _gz.open(parts[0], "rt", newline="") as f:
+        rows = list(csv.reader(f))
+    assert rows[0][0].startswith("WigleWifi-")
+    assert len(rows) - 2 == stats["kept_rows"]
+    assert stats["max_part_bytes"] <= 55 * 1024 * 1024
+
+
 def test_piglet_16_passthrough():
     out = tempfile.mktemp(suffix=".csv")
     stats = merge.merge([P1], out)
@@ -160,6 +174,44 @@ def test_piglet_16_passthrough():
     assert rows[0][0] == "WigleWifi-1.6"
     assert stats["device"] == "piglet"
     assert stats["kept_rows"] == 2
+
+
+def test_storage_meta_atomic_roundtrip():
+    import storage
+    d = tempfile.mkdtemp()
+    meta = {"stamp": "x", "parts": ["a.csv.gz"], "upload_complete": False}
+    storage.update_meta(d, meta)
+    assert storage.load_meta(d) == meta
+    # No leftover temp file, and a rewrite still round-trips.
+    assert not os.path.exists(os.path.join(d, "meta.json.tmp"))
+    meta["upload_complete"] = True
+    storage.update_meta(d, meta)
+    assert storage.load_meta(d)["upload_complete"] is True
+
+
+def test_stats_cache_fallback():
+    try:
+        import stats
+    except ImportError:
+        print("  (skip stats cache: requests not installed)")
+        return
+
+    class FakeCfg:
+        def getbool(self, s, k):
+            return True
+        def get(self, s, k):
+            return "x"        # non-empty creds/key
+
+    stats._last_good.update(wigle=None, wdgowars=None)
+    stats.wigle_stats = lambda *a, **k: {"nets": 1, "rank": 9, "month_rank": 152}
+    stats.wdgowars_team = lambda *a, **k: {"name": "LAB5", "rank": 5}
+    first = stats.build_message(FakeCfg())
+    assert "WIGLE MO #152" in first and "WDG LAB5 #5" in first
+    # Now both fetches fail -> message must still come from the cache.
+    stats.wigle_stats = lambda *a, **k: None
+    stats.wdgowars_team = lambda *a, **k: None
+    cached = stats.build_message(FakeCfg())
+    assert cached == first
 
 
 if __name__ == "__main__":

@@ -86,7 +86,7 @@ Key options (see `config.example.ini` for the full list):
 | Option | Meaning |
 |--------|---------|
 | `[upload] required` | Uploaders that **must** succeed for a run to count as done (default `wigle`; wdgowars is best‑effort). |
-| `[upload] max_upload_mb` / `gzip` | Per‑file cap (default 55) and gzip on/off (default on). gzip caps the *compressed* size. |
+| `[upload] max_upload_mb` / `gzip` / `gzip_level` | Per‑file cap (default 55), gzip on/off (default on, caps the *compressed* size), and gzip level 1–9 (default 6 — the speed/size sweet spot on ARMv6). |
 | `[upload] retries` / `max_attempts` | Per‑pass retries (default 3) and background retry passes before giving up (default 10). |
 | `[merge] dedup` | `lines` (fast exact‑line, default), `none` (concatenate), or `fields` (MAC+FirstSeen, smallest/slowest). |
 | `[wdgowars] min_interval_seconds` | Cooldown the uploader waits between wdgowars uploads (default 60). |
