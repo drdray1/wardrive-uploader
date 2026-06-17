@@ -120,27 +120,39 @@ class UploadManager:
         parts = meta["parts"]
 
         # Upload every part to every enabled uploader, skipping (part, uploader)
-        # pairs that already succeeded. wdgowars paces itself (cooldown).
+        # pairs that already succeeded. Each uploader runs in its OWN thread so
+        # the services upload in parallel (WiGLE overlaps wdgowars' cooldown).
+        # wdgowars still self-paces its own cooldown within its thread.
         status = meta.get("uploads")
         if not isinstance(status, dict):
             status = {}                       # migrate/ignore any old list format
         meta["attempts"] = meta.get("attempts", 0) + 1
         self.display.set_state(disp.UPLOADING, progress=0.0)
         units = max(1, len(parts) * len(self.uploaders))
-        done = 0
-        for up in self.uploaders:
+        progress = {"done": 0}
+        lock = threading.Lock()
+
+        def _upload_one(up):
             for pname in parts:
-                ps = status.setdefault(pname, {})
-                if ps.get(up.name, {}).get("ok"):
-                    done += 1
-                    self.display.set_progress(done / units)
-                    continue
-                res = upload.upload_with_retry(
-                    up, os.path.join(archive_dir, pname), retries=self.retries)
-                ps[up.name] = res.as_dict()
-                done += 1
-                self.display.set_progress(done / units)
-            storage.update_meta(archive_dir, {**meta, "uploads": status})
+                with lock:
+                    already = status.get(pname, {}).get(up.name, {}).get("ok")
+                if not already:
+                    res = upload.upload_with_retry(
+                        up, os.path.join(archive_dir, pname), retries=self.retries)
+                    with lock:
+                        status.setdefault(pname, {})[up.name] = res.as_dict()
+                        storage.update_meta(archive_dir, {**meta, "uploads": status})
+                with lock:
+                    progress["done"] += 1
+                    frac = progress["done"] / units
+                self.display.set_progress(frac)
+
+        threads = [threading.Thread(target=_upload_one, args=(up,), daemon=True)
+                   for up in self.uploaders]
+        for t in threads:
+            t.start()
+        for t in threads:
+            t.join()
 
         meta["uploads"] = status
         ok_names = {u.name for u in self.uploaders

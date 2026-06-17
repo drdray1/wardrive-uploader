@@ -172,9 +172,11 @@ sudo systemctl restart wardrive-uploader
   to dedupe on `MAC + FirstSeen`. WiGLE and wdgowars dedupe server‑side regardless. Marauder
   writes WigleWifi‑1.4 and Piglet writes 1.6; since one card = one device, no mixing happens
   (a 1.4→1.6 normalizer exists for safety, and forces the field path).
-- **Uploads** send each part to each service. **wdgowars enforces a cooldown**, so the
-  uploader self‑paces (`[wdgowars] min_interval_seconds`, default 60). Per‑part, per‑service
-  success is tracked in `meta.json`, so retries only re‑send what actually failed.
+- **Uploads** run the two services **in parallel** (one thread each), so WiGLE overlaps
+  wdgowars. **wdgowars enforces a cooldown**, so its thread self‑paces
+  (`[wdgowars] min_interval_seconds`, default 60) — that rate limit, not WiGLE, is the floor
+  on total time for big captures. Per‑part, per‑service success is tracked in `meta.json`, so
+  retries only re‑send what actually failed.
 - **Durable uploads**: each run's status is tracked in `meta.json`. Failed/incomplete
   uploads are re‑queued automatically (periodically and on reboot) until they succeed
   or hit `max_attempts`, so a flaky network never loses data.
