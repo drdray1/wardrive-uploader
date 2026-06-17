@@ -13,6 +13,7 @@ import csv
 import io
 import logging
 import os
+import time
 
 log = logging.getLogger("wardrive.merge")
 
@@ -76,6 +77,20 @@ def discover(mountpoint, exclude_dirs):
     return found
 
 
+def _read_header(path):
+    """Cheaply read just the two header lines (raw, including newlines).
+    Returns (preheader_line, colheader_line) or (None, None)."""
+    try:
+        with open(path, "r", encoding="utf-8", errors="replace", newline="") as f:
+            pre = f.readline()
+            col = f.readline()
+    except OSError:
+        return None, None
+    if not pre.startswith(WIGLE_SIGNATURE):
+        return None, None
+    return pre, col
+
+
 def _read_parts(path):
     """Return (preheader_line, column_header_line, list_of_data_rows)."""
     with open(path, "r", encoding="utf-8", errors="replace", newline="") as f:
@@ -112,69 +127,139 @@ def _dedup_key(row):
     return (mac, first_seen)
 
 
-def merge(paths, out_path, normalize_to=None):
+def merge(paths, out_path, normalize_to=None, dedup="lines"):
     """Merge same-version WiGLE CSVs into out_path. Returns a stats dict.
 
-    normalize_to: optional '1.6' to upconvert a 1.4 card. Default keeps the
-    card's native version (no mixing happens because one card = one device).
+    dedup:
+      "lines"  - stream raw lines, drop byte-identical duplicate rows (fast,
+                 no CSV field parsing). DEFAULT.
+      "none"   - pure concatenation, no dedup (fastest).
+      "fields" - parse rows and dedup on MAC+FirstSeen (smallest, slowest).
+    normalize_to: optional '1.6' to upconvert a 1.4 card. Forces the field path.
+    A mixed-version card (shouldn't happen: one device per card) also forces it.
     """
     if not paths:
         raise ValueError("no input files to merge")
 
+    started = time.monotonic()
     versions = {detect_version(p) for p in paths}
     versions.discard(None)
     if len(versions) > 1:
-        # Shouldn't happen (one device per card) but be safe: normalize to 1.6.
         log.warning("multiple WiGLE versions on one card %s; normalizing to 1.6", versions)
         normalize_to = "1.6"
     source_version = sorted(versions)[0] if versions else "1.6"
     out_version = normalize_to or source_version
 
-    # Choose output header from the first file matching the output version,
-    # else synthesize a minimal pre-header.
-    preheader, colheader = None, None
+    # The fast streaming path can't reorder columns, so any normalization (or an
+    # explicit fields request) uses the parse-based path.
+    if normalize_to is not None or dedup == "fields":
+        stats = _merge_fields(paths, out_path, source_version, out_version, normalize_to)
+        mode = "fields"
+    else:
+        stats = _merge_lines(paths, out_path, source_version, dedup)
+        mode = dedup
+
+    stats["dedup_mode"] = mode
+    log.info("merged %s files -> %s/%s rows (%s dupes removed), %s bytes, device=%s, "
+             "mode=%s in %.1fs",
+             stats["input_files"], stats["kept_rows"], stats["total_rows"],
+             stats["duplicates_removed"], stats["bytes"], stats["device"],
+             mode, time.monotonic() - started)
+    return stats
+
+
+def _header_for(paths, out_version):
+    """Pick the two raw header lines from the first readable file."""
     for p in paths:
-        ph, ch, _ = _read_parts(p)
-        if ph is None:
-            continue
-        if detect_version(p) == out_version or normalize_to is None:
-            preheader = ph
-            colheader = COLUMNS_16 if out_version == "1.6" else COLUMNS_14
-            # Keep the real column header if present and we're not upconverting.
-            if normalize_to is None and ch:
-                colheader = ch
-            break
-    if preheader is None:
-        preheader = ["WigleWifi-" + out_version, "appRelease=wardrive-uploader"]
-        colheader = COLUMNS_16 if out_version == "1.6" else COLUMNS_14
+        pre, col = _read_header(p)
+        if pre is not None:
+            if not col:
+                col = ",".join(COLUMNS_16 if out_version == "1.6" else COLUMNS_14) + "\r\n"
+            return pre, col
+    return ("WigleWifi-" + out_version + "\r\n",
+            ",".join(COLUMNS_16 if out_version == "1.6" else COLUMNS_14) + "\r\n")
+
+
+def _merge_lines(paths, out_path, source_version, dedup):
+    """Fast streaming merge: copy raw data lines, optional exact-line dedup.
+    Constant memory - never holds the whole dataset or output in RAM."""
+    pre, col = _header_for(paths, source_version)
+    seen = set()              # ints (hash of each data line); a few MB at most
+    total_rows = kept_rows = 0
+    do_dedup = (dedup != "none")
+
+    with open(out_path, "w", encoding="utf-8", errors="replace", newline="") as out:
+        out.write(pre if pre.endswith("\n") else pre + "\n")
+        out.write(col if col.endswith("\n") else col + "\n")
+        for p in paths:
+            try:
+                f = open(p, "r", encoding="utf-8", errors="replace", newline="")
+            except OSError as e:
+                log.error("cannot read %s: %s", p, e)
+                continue
+            with f:
+                f.readline()          # skip pre-header
+                f.readline()          # skip column header
+                for line in f:
+                    if not line.strip():
+                        continue
+                    total_rows += 1
+                    if do_dedup:
+                        key = hash(line.rstrip("\n").rstrip("\r"))
+                        if key in seen:
+                            continue
+                        seen.add(key)
+                    out.write(line if line.endswith("\n") else line + "\n")
+                    kept_rows += 1
+
+    nbytes = os.path.getsize(out_path)
+    return {
+        "source_version": source_version,
+        "out_version": source_version,
+        "device": device_for_version(source_version),
+        "input_files": len(paths),
+        "total_rows": total_rows,
+        "kept_rows": kept_rows,
+        "duplicates_removed": total_rows - kept_rows,
+        "bytes": nbytes,
+        "oversize": nbytes > WIGLE_MAX_BYTES,
+    }
+
+
+def _merge_fields(paths, out_path, source_version, out_version, normalize_to):
+    """Parse-based merge: dedup on MAC+FirstSeen, optional 1.4->1.6 normalize.
+    Streamed to the output file (no giant in-memory buffer)."""
+    pre, _ = _read_header(paths[0])
+    colheader = COLUMNS_16 if out_version == "1.6" else COLUMNS_14
+    preheader = (pre.rstrip("\r\n").split(",") if pre
+                 else ["WigleWifi-" + out_version, "appRelease=wardrive-uploader"])
+    # Reflect the output version in the pre-header token (keeps the rest of the
+    # device metadata) - matters when normalizing 1.4 -> 1.6.
+    if preheader:
+        preheader[0] = "WigleWifi-" + out_version
 
     seen = set()
-    total_rows = 0
-    kept_rows = 0
-    buf = io.StringIO()
-    writer = csv.writer(buf)
-    writer.writerow(preheader)
-    writer.writerow(colheader)
+    total_rows = kept_rows = 0
+    with open(out_path, "w", encoding="utf-8", errors="replace", newline="") as out:
+        writer = csv.writer(out)
+        writer.writerow(preheader)
+        writer.writerow(colheader)
+        for p in paths:
+            ver = detect_version(p)
+            _, _, data = _read_parts(p)
+            for row in data:
+                total_rows += 1
+                if normalize_to == "1.6" and ver == "1.4":
+                    row = _row_14_to_16(row)
+                key = _dedup_key(row)
+                if key in seen:
+                    continue
+                seen.add(key)
+                writer.writerow(row)
+                kept_rows += 1
 
-    for p in paths:
-        ver = detect_version(p)
-        _, _, data = _read_parts(p)
-        for row in data:
-            total_rows += 1
-            if normalize_to == "1.6" and ver == "1.4":
-                row = _row_14_to_16(row)
-            key = _dedup_key(row)
-            if key in seen:
-                continue
-            seen.add(key)
-            writer.writerow(row)
-            kept_rows += 1
-
-    payload = buf.getvalue().encode("utf-8")
-    with open(out_path, "wb") as f:
-        f.write(payload)
-
-    stats = {
+    nbytes = os.path.getsize(out_path)
+    return {
         "source_version": source_version,
         "out_version": out_version,
         "device": device_for_version(source_version),
@@ -182,10 +267,6 @@ def merge(paths, out_path, normalize_to=None):
         "total_rows": total_rows,
         "kept_rows": kept_rows,
         "duplicates_removed": total_rows - kept_rows,
-        "bytes": len(payload),
-        "oversize": len(payload) > WIGLE_MAX_BYTES,
+        "bytes": nbytes,
+        "oversize": nbytes > WIGLE_MAX_BYTES,
     }
-    log.info("merged %s files -> %s rows (%s dupes removed), %s bytes, device=%s",
-             stats["input_files"], stats["kept_rows"],
-             stats["duplicates_removed"], stats["bytes"], stats["device"])
-    return stats

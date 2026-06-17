@@ -50,21 +50,36 @@ def test_discover_finds_only_wigle(tmp_path=None):
     assert found[0].endswith("wardrive_1.csv")
 
 
-def test_merge_marauder_dedups():
+def test_merge_lines_default_dedups_exact():
+    # Default "lines" mode: M2's EE:02 row is byte-identical to M1's -> removed.
     out = tempfile.mktemp(suffix=".csv")
     stats = merge.merge([M1, M2], out)
     rows = _read(out)
-    # 2 header lines + unique data rows.
     assert rows[0][0] == "WigleWifi-1.4"
     data = rows[2:]
-    # M1 has EE:01,02,03 ; M2 adds 04 and a 2nd EE:01 (different FirstSeen).
-    # Dedup key is MAC+FirstSeen, so the 11:00 EE:01 is NOT a dupe; the
-    # duplicate EE:02 (same time) IS removed.
     macs_times = {(r[0], r[3]) for r in data}
     assert ("AA:BB:CC:DD:EE:02", "2024-06-01 10:01:00") in macs_times
+    # EE:01 at 11:00 is a different line, so it's kept (not a byte-dup).
+    assert ("AA:BB:CC:DD:EE:01", "2024-06-01 11:00:00") in macs_times
+    assert stats["dedup_mode"] == "lines"
     assert stats["duplicates_removed"] == 1
     assert stats["device"] == "marauder"
     assert stats["source_version"] == "1.4"
+
+
+def test_merge_none_concatenates():
+    out = tempfile.mktemp(suffix=".csv")
+    stats = merge.merge([M1, M2], out, dedup="none")
+    assert stats["duplicates_removed"] == 0
+    assert stats["kept_rows"] == stats["total_rows"] == 6  # 3 + 3, nothing dropped
+
+
+def test_merge_fields_dedups_mac_firstseen():
+    out = tempfile.mktemp(suffix=".csv")
+    stats = merge.merge([M1, M2], out, dedup="fields")
+    assert stats["dedup_mode"] == "fields"
+    assert stats["duplicates_removed"] == 1
+    assert stats["device"] == "marauder"
 
 
 def test_normalize_14_to_16():
@@ -80,6 +95,7 @@ def test_normalize_14_to_16():
     assert first[5] == ""          # Frequency unknown from 1.4
     assert first[-1] == "WIFI"     # Type preserved
     assert stats["out_version"] == "1.6"
+    assert stats["dedup_mode"] == "fields"   # normalization forces field path
 
 
 def test_piglet_16_passthrough():

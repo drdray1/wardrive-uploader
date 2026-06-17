@@ -113,7 +113,7 @@ class Appliance:
             log.info("[DRY-RUN] merging locally, skipping upload")
             try:
                 out = os.path.join(archive_dir, f"wardrive_combined_{stamp}.csv")
-                meta["stats"] = merge.merge(copied, out)
+                meta["stats"] = merge.merge(copied, out, dedup=self.cfg.get("merge", "dedup"))
                 meta["combined_file"] = os.path.basename(out)
                 storage.update_meta(archive_dir, meta)
                 self.display.set_result(disp.SUCCESS, {})

@@ -162,9 +162,13 @@ sudo systemctl restart wardrive-uploader
   moves the originals into the on‑card `archive/` (an instant same‑filesystem rename),
   then unmounts and tells you it's safe to remove. The slow **merge and upload run
   afterwards**, off‑card.
-- **Merge** keeps one header pair, concatenates data rows, and de‑dups on `MAC + FirstSeen`.
-  Marauder writes WigleWifi‑1.4 and Piglet writes 1.6; since one card = one device, no mixing
-  happens (a 1.4→1.6 normalizer exists for safety).
+- **Merge** streams the logs into one file, keeping a single header pair. By default
+  (`[merge] dedup = lines`) it drops byte‑identical duplicate rows without parsing fields —
+  fast and constant‑memory (important on a 512 MB Zero W). Set `dedup = none` to just
+  concatenate (fastest, bigger file) or `dedup = fields` to dedupe on `MAC + FirstSeen`
+  (smallest, slowest). WiGLE and wdgowars dedupe server‑side regardless. Marauder writes
+  WigleWifi‑1.4 and Piglet writes 1.6; since one card = one device, no mixing happens (a
+  1.4→1.6 normalizer exists for safety, and forces the field path).
 - **Durable uploads**: each run's status is tracked in `meta.json`. Failed/incomplete
   uploads are re‑queued automatically (periodically and on reboot) until they succeed
   or hit `max_attempts`, so a flaky network never loses data.

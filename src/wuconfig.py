@@ -41,6 +41,11 @@ _DEFAULTS = {
         # Directories (by name) skipped during the recursive card scan.
         "exclude_dirs": "archive,System Volume Information,.Trash-1000,.Spotlight-V100,.fseventsd",
     },
+    "merge": {
+        # lines = fast streaming exact-line dedup (default); none = concatenate;
+        # fields = parse + dedup on MAC+FirstSeen (smallest, slowest).
+        "dedup": "lines",
+    },
     "display": {
         "brightness": "128",
         "rotate": "0",

@@ -111,7 +111,7 @@ class UploadManager:
             out_name = f"wardrive_combined_{meta.get('stamp', 'run')}.csv"
             combined_path = os.path.join(archive_dir, out_name)
             out_part = combined_path + ".part"
-            stats = merge.merge(sources, out_part)
+            stats = merge.merge(sources, out_part, dedup=self.cfg.get("merge", "dedup"))
             os.replace(out_part, combined_path)   # atomic: never upload a partial file
             meta["combined_file"] = out_name
             meta["stats"] = stats
