@@ -167,6 +167,71 @@ GLYPH_X = _g(["#   #", " # # ", "  #  ", " # # ", "#   #"])
 GLYPH_UP = _g(["  #  ", " ### ", "#####", "  #  ", "  #  "])
 
 
+# 3x5 font for the idle stats ticker. Each entry is 5 rows of 3 chars.
+_FONT = {
+    " ": ["   ", "   ", "   ", "   ", "   "],
+    "0": ["###", "# #", "# #", "# #", "###"],
+    "1": [" # ", "## ", " # ", " # ", "###"],
+    "2": ["###", "  #", "###", "#  ", "###"],
+    "3": ["###", "  #", "###", "  #", "###"],
+    "4": ["# #", "# #", "###", "  #", "  #"],
+    "5": ["###", "#  ", "###", "  #", "###"],
+    "6": ["###", "#  ", "###", "# #", "###"],
+    "7": ["###", "  #", "  #", "  #", "  #"],
+    "8": ["###", "# #", "###", "# #", "###"],
+    "9": ["###", "# #", "###", "  #", "###"],
+    "A": ["###", "# #", "###", "# #", "# #"],
+    "B": ["## ", "# #", "## ", "# #", "## "],
+    "C": ["###", "#  ", "#  ", "#  ", "###"],
+    "D": ["## ", "# #", "# #", "# #", "## "],
+    "E": ["###", "#  ", "###", "#  ", "###"],
+    "F": ["###", "#  ", "###", "#  ", "#  "],
+    "G": ["###", "#  ", "# #", "# #", "###"],
+    "H": ["# #", "# #", "###", "# #", "# #"],
+    "I": ["###", " # ", " # ", " # ", "###"],
+    "J": ["###", "  #", "  #", "# #", "###"],
+    "K": ["# #", "# #", "## ", "# #", "# #"],
+    "L": ["#  ", "#  ", "#  ", "#  ", "###"],
+    "M": ["# #", "###", "###", "# #", "# #"],
+    "N": ["# #", "###", "###", "###", "# #"],
+    "O": ["###", "# #", "# #", "# #", "###"],
+    "P": ["###", "# #", "###", "#  ", "#  "],
+    "Q": ["###", "# #", "# #", "###", "  #"],
+    "R": ["###", "# #", "## ", "# #", "# #"],
+    "S": ["###", "#  ", "###", "  #", "###"],
+    "T": ["###", " # ", " # ", " # ", " # "],
+    "U": ["# #", "# #", "# #", "# #", "###"],
+    "V": ["# #", "# #", "# #", "# #", " # "],
+    "W": ["# #", "# #", "###", "###", "# #"],
+    "X": ["# #", "# #", " # ", "# #", "# #"],
+    "Y": ["# #", "# #", " # ", " # ", " # "],
+    "Z": ["###", "  #", " # ", "#  ", "###"],
+    "#": ["# #", "###", "# #", "###", "# #"],
+    "+": ["   ", " # ", "###", " # ", "   "],
+    "-": ["   ", "   ", "###", "   ", "   "],
+    ":": ["   ", " # ", "   ", " # ", "   "],
+    ".": ["   ", "   ", "   ", "   ", " # "],
+    "/": ["  #", "  #", " # ", "#  ", "#  "],
+    "?": ["###", "  #", " # ", "   ", " # "],
+}
+
+
+def _text_columns(text):
+    """Convert text to a list of column bitmaps (5-bit ints, bit0 = top row),
+    using the 3x5 font with a 1px gap between characters."""
+    cols = []
+    for ch in text.upper():
+        glyph = _FONT.get(ch, _FONT["?"])
+        for x in range(3):
+            bits = 0
+            for y in range(HEIGHT):
+                if glyph[y][x] == "#":
+                    bits |= (1 << y)
+            cols.append(bits)
+        cols.append(0)            # 1px spacing between characters
+    return cols
+
+
 # ---------------------------------------------------------------------------
 # Controller with background render thread.
 # ---------------------------------------------------------------------------
@@ -177,6 +242,7 @@ class Display:
         self._state = IDLE
         self._progress = 0.0
         self._marks = {}        # per-uploader ok flags for SUCCESS/ERROR
+        self._msg_cols = []     # idle ticker text as column bitmaps
         self._lock = threading.Lock()
         self._stop = threading.Event()
         self._frame = 0
@@ -203,6 +269,13 @@ class Display:
             self._marks = dict(marks or {})
         log.info("display result -> %s marks=%s", state, marks)
 
+    def set_message(self, text):
+        """Set the scrolling text shown when idle (e.g. account stats). Empty
+        string clears it back to the plain idle animation."""
+        cols = _text_columns(text + "   ") if text else []   # trailing gap
+        with self._lock:
+            self._msg_cols = cols
+
     def stop(self):
         self._stop.set()
         self._thread.join(timeout=2)
@@ -217,8 +290,9 @@ class Display:
             with self._lock:
                 state, progress, frame = self._state, self._progress, self._frame
                 marks = dict(self._marks)
+                msg_cols = self._msg_cols
             try:
-                self._render(state, progress, frame, marks)
+                self._render(state, progress, frame, marks, msg_cols)
             except Exception as e:
                 log.debug("render error: %s", e)
             with self._lock:
@@ -243,15 +317,26 @@ class Display:
             for y in range(HEIGHT):
                 self.be.set_pixel(WIDTH - 1, y, True)
 
-    def _render(self, state, progress, frame, marks=None):
+    def _render(self, state, progress, frame, marks=None, msg_cols=None):
         self._blank()
         marks = marks or {}
 
         if state == IDLE:
-            # Slow, dim dot drifting left->right (calm "waiting" cue).
-            self.be.set_brightness(max(8, self.base_brightness // 5))
-            pos = (frame // 3) % WIDTH
-            self.be.set_pixel(pos, 2, True)
+            if msg_cols:
+                # Scroll the stats ticker right-to-left.
+                self.be.set_brightness(max(20, self.base_brightness // 2))
+                n = len(msg_cols)
+                off = (frame // 2) % n
+                for x in range(WIDTH):
+                    bits = msg_cols[(off + x) % n]
+                    for y in range(HEIGHT):
+                        if bits & (1 << y):
+                            self.be.set_pixel(x, y, True)
+            else:
+                # Slow, dim dot drifting left->right (calm "waiting" cue).
+                self.be.set_brightness(max(8, self.base_brightness // 5))
+                pos = (frame // 3) % WIDTH
+                self.be.set_pixel(pos, 2, True)
 
         elif state == COPYING:
             # Brighter 2-px "comet" sweeping right = pulling data off the card.

@@ -74,6 +74,7 @@ Key options (see `config.example.ini` for the full list):
 | `[archive] local_dir` | Permanent copy kept on the Pi. |
 | `[archive] retention_runs` / `retention_mb` | Prune oldest local runs so the Pi never fills up. |
 | `[display] brightness` / `rotate` | Panel brightness (0–255) and `180` if mounted upside‑down. |
+| `[stats] enabled` / `refresh_minutes` | Scroll WiGLE + wdgowars account stats on the panel when idle (default on, refreshed every 15 min). |
 
 > wdgowars uses its documented REST API (`POST /api/upload-csv`, header `X-API-Key`, field
 > `file`, 60 MB cap, `.gz` accepted). It's non‑blocking by default, so even if it has a hiccup
@@ -90,7 +91,7 @@ Key options (see `config.example.ini` for the full list):
 
 | State | Scroll pHAT shows | Card needed? |
 |-------|-------------------|:---:|
-| Idle / waiting | Dim dot drifting across | — |
+| Idle / waiting | Scrolls your stats (e.g. `WIGLE 12345 #678  WDG 9012 +42`), or a dim dot if stats are off/unavailable | — |
 | Scanning card | Dot circling a ring | yes |
 | Copying logs off | Bright comet sweeping right | yes |
 | **Safe to remove** | Steady **⬆** arrow, gentle pulse | **pull it now** |

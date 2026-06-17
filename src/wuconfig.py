@@ -52,6 +52,11 @@ _DEFAULTS = {
         # fields = parse + dedup on MAC+FirstSeen (smallest, slowest).
         "dedup": "lines",
     },
+    "stats": {
+        # Scroll WiGLE + wdgowars account stats on the panel when idle.
+        "enabled": "true",
+        "refresh_minutes": "15",
+    },
     "display": {
         "brightness": "128",
         "rotate": "0",

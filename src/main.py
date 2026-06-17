@@ -16,6 +16,7 @@ import logging
 import os
 import signal
 import sys
+import threading
 import time
 
 # Allow running both as `python src/main.py` and as an installed module.
@@ -137,12 +138,31 @@ class Appliance:
 # ---------------------------------------------------------------------------
 # udev-driven service loop
 # ---------------------------------------------------------------------------
+def _start_stats_ticker(cfg, display):
+    """Periodically refresh the idle stats ticker from WiGLE + wdgowars."""
+    import stats
+    interval = max(60, cfg.getint("stats", "refresh_minutes") * 60)
+
+    def loop():
+        while True:
+            try:
+                display.set_message(stats.build_message(cfg))
+            except Exception as e:
+                log.warning("stats ticker error: %s", e)
+            time.sleep(interval)
+
+    threading.Thread(target=loop, daemon=True).start()
+    log.info("stats ticker enabled (every %s min)", interval // 60)
+
+
 def run_service(cfg, display):
     import pyudev
     manager = UploadManager(cfg, display)
     names = [u.name for u in manager.uploaders]
     log.info("uploaders enabled: %s (required: %s)",
              names or "NONE", sorted(manager.required) or "none")
+    if cfg.getbool("stats", "enabled"):
+        _start_stats_ticker(cfg, display)
     appliance = Appliance(cfg, display, manager)
     context = pyudev.Context()
     monitor = pyudev.Monitor.from_netlink(context)
@@ -197,7 +217,10 @@ def main(argv=None):
 
     try:
         if args.test_display:
-            for state in (disp.IDLE, disp.SCANNING, disp.COPYING, disp.MERGING,
+            display.set_message("WIGLE 12345 #678   WDG 9012 +42")
+            display.set_state(disp.IDLE)
+            time.sleep(10)                      # let the stats ticker scroll
+            for state in (disp.SCANNING, disp.COPYING, disp.MERGING,
                           disp.UPLOADING, disp.SAFE_REMOVE, disp.NONE_FOUND):
                 display.set_state(state, progress=0.6 if state == disp.UPLOADING else None)
                 time.sleep(3)
