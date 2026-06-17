@@ -58,7 +58,7 @@ _DEFAULTS = {
         "refresh_minutes": "15",
     },
     "display": {
-        "brightness": "128",
+        "brightness": "64",
         "rotate": "0",
     },
 }

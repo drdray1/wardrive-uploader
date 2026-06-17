@@ -348,7 +348,7 @@ class Display:
 
         elif state == SAFE_REMOVE:
             # Steady up-arrow with a gentle pulse: "lift the card out now".
-            self.be.set_brightness(60 + int(150 * _tri(frame, 18)))
+            self.be.set_brightness(int(self.base_brightness * (0.4 + 0.6 * _tri(frame, 18))))
             self._draw(GLYPH_UP, dx=3)
 
         elif state == SCANNING:
@@ -376,15 +376,13 @@ class Display:
 
         elif state == SUCCESS:
             # Steady check with a slow, gentle breathing pulse + uploader marks.
-            b = 60 + int(150 * _tri(frame, 32))
-            self.be.set_brightness(b)
+            self.be.set_brightness(int(self.base_brightness * (0.4 + 0.6 * _tri(frame, 32))))
             self._draw(GLYPH_CHECK, dx=3)
             self._draw_marks(marks)
 
         elif state == ERROR:
             # Steady X with a slow brightness breathe - attention without strobing.
-            b = 40 + int(140 * _tri(frame, 24))
-            self.be.set_brightness(b)
+            self.be.set_brightness(int(self.base_brightness * (0.3 + 0.7 * _tri(frame, 24))))
             self._draw(GLYPH_X, dx=3)
             self._draw_marks(marks)
 
